@@ -94,6 +94,7 @@ void usage(void)
 	"  [KOBS] boot structures config options\n"
 	"    --chip_0_device_path=<path> .......... Device of boot (default /dev/mtd0)\n"
 	"    --chip_1_device_path=<path> .......... The second chip in case of multichip NAND\n"
+	"    --chip_0_size=<size> ................. Override size of chip_0 device\n"
 	"    --search_exponent=<value> ............ NCB field (default 2)\n"
 	"    --data_setup_time=<value> ............ NCB field (default 80)\n"
 	"    --data_hold_time=<value> ............. NCB field (default 60)\n"
