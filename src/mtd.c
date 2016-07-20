@@ -609,7 +609,7 @@ static int cal_nfc_geometry(struct mtd_data *md)
 	/* The two are fixed, please change them when the driver changes. */
 	geo->metadata_size_in_bytes = 10;
 	geo->gf_len = 13;
-	geo->ecc_chunkn_size_in_bytes = 512;
+	geo->ecc_chunkn_size_in_bytes = geo->ecc_chunk0_size_in_bytes = 512;
 
 	if (mtd->oobsize > geo->ecc_chunkn_size_in_bytes) {
 		geo->gf_len = 14;
@@ -699,8 +699,9 @@ int parse_nfc_geometry(struct mtd_data *md)
 	unsigned int       value;
 
 	if (!plat_config_data->m_u32UseNfcGeo) {
+		/* fsl kernel patch provides bch_geometry via debugfs */
 		if (!(node = fopen(dbg_geometry_node_path, "r"))) {
-			fprintf(stderr, "Cannot open BCH geometry node: \"%s\"",
+			fprintf(stderr, "Cannot open BCH geometry node: \"%s\"\n",
 				dbg_geometry_node_path);
 			return cal_nfc_geometry(md);
 		}
