@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/utsname.h>
 
 #include "mtd.h"
 #include "rand.h"
@@ -608,7 +609,7 @@ static int cal_nfc_geometry(struct mtd_data *md)
 	/* The two are fixed, please change them when the driver changes. */
 	geo->metadata_size_in_bytes = 10;
 	geo->gf_len = 13;
-	geo->ecc_chunkn_size_in_bytes = 512;
+	geo->ecc_chunkn_size_in_bytes = geo->ecc_chunk0_size_in_bytes = 512;
 
 	if (mtd->oobsize > geo->ecc_chunkn_size_in_bytes) {
 		geo->gf_len = 14;
@@ -698,8 +699,9 @@ int parse_nfc_geometry(struct mtd_data *md)
 	unsigned int       value;
 
 	if (!plat_config_data->m_u32UseNfcGeo) {
+		/* fsl kernel patch provides bch_geometry via debugfs */
 		if (!(node = fopen(dbg_geometry_node_path, "r"))) {
-			fprintf(stderr, "Cannot open BCH geometry node: \"%s\"",
+			fprintf(stderr, "Cannot open BCH geometry node: \"%s\"\n",
 				dbg_geometry_node_path);
 			return cal_nfc_geometry(md);
 		}
@@ -807,15 +809,27 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	md->cfg = *cfg;
 
 	/* check if use new raw access mode */
+	/* by looking for debugfs from fsl patch */
+	md->raw_mode_flag = 0;
 	fp = fopen("/sys/kernel/debug/gpmi-nand/raw_mode", "r");
 	if (!fp) {
-		md->raw_mode_flag = 0;
-		vp(md, "mtd: use legacy raw access mode\n");
+		/* fallback to kernel version: raw access added in 3.19 */
+		struct utsname uts;
+		if (!uname(&uts)) {
+			int major = 0, minor = 0;
+			sscanf(uts.release, "%d.%d", &major, &minor);
+			vp(md, "mtd: Linux %d.%d\n", major, minor);
+			if ((major << 8 | minor) > (3 << 8 | 18))
+				md->raw_mode_flag = 1;
+		}
 	} else {
 		fclose(fp);
 		md->raw_mode_flag = 1;
-		vp(md, "mtd: use new bch layout raw access mode\n");
 	}
+	if (md->raw_mode_flag)
+		vp(md, "mtd: use new bch layout raw access mode\n");
+	else
+		vp(md, "mtd: use legacy raw access mode\n");
 
 	if (plat_config_data->m_u32UseMultiBootArea) {
 
