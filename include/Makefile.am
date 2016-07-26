@@ -3,6 +3,9 @@ noinst_HEADERS=version.h
 version.h: stamp-vh
 	@:
 
+all: config.h
+	echo "const char *git_sha = \""`git rev-parse HEAD`"\";" > ../include/autoversion.h
+
 stamp-vh: $(top_builddir)/configure.in
 	@echo "/*" > ver.tmp
 	@echo " *  version.h" >> ver.tmp
