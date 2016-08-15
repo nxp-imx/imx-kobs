@@ -1,3 +1,5 @@
+imx-kobs version 5.5  GPL-2.0
+
 If you want to compile it in cross environment.
 Please try the following :
 	#./configure CC=arm-none-linux-gnueabihf-gcc --host=arm-none-linux-gnueabihf-gcc
