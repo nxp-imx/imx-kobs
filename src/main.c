@@ -67,7 +67,8 @@ void usage(void)
 			VERSION_MAJOR, VERSION_MINOR, git_sha);
 	printf("ROM Version %d\n", plat_config_data->m_u32RomVer);
 	printf(
-	"usage: kobs-ng [COMMAND] [ARGS]\n"
+	"usage: kobs-ng [-r <ROM version>] [COMMAND] [ARGS]\n"
+	"Where <ROM version> is one of: mx23 mx28 mx50 mx53to1 mx53to2 mx6q mx6sx mx6sx_to_1_2 mx7d mx6ul\n"
 	"Where [COMMAND] is one of:\n"
 	"\n"
 	"  dump [-v] [KOBS] ........................ Verify/dump boot structures\n"
@@ -830,16 +831,50 @@ int main(int argc, char **argv)
 {
 	int ret;
 
-	ret = discover_boot_rom_version();
-	if (ret != 0) {
-		printf("We can not find the right ROM version!\n");
-		exit(1);
-	}
-
 	if (argc < 2)
 		usage();
 	argc--;
 	argv++;
+
+	if (strcmp(argv[0], "-r") == 0) {
+		if (argc < 2)
+			usage();
+		argc--;
+		argv++;
+		if (strcmp(argv[0], "mx23") == 0) {
+			plat_config_data = &mx23_boot_config;
+		} else if (strcmp(argv[0], "mx28") == 0) {
+			plat_config_data = &mx28_boot_config;
+		} else if (strcmp(argv[0], "mx50") == 0) {
+			plat_config_data = &mx50_boot_config;
+		} else if (strcmp(argv[0], "mx53to1") == 0) {
+			plat_config_data = &mx53to1_boot_config;
+		} else if (strcmp(argv[0], "mx53to2") == 0) {
+			plat_config_data = &mx53to1_boot_config;
+		} else if (strcmp(argv[0], "mx6q") == 0) {
+			plat_config_data = &mx6q_boot_config;
+		} else if (strcmp(argv[0], "mx6sx") == 0) {
+			plat_config_data = &mx6sx_boot_config;
+		} else if (strcmp(argv[0], "mx6sx_to_1_2") == 0) {
+			plat_config_data = &mx6sx_to_1_2_boot_config;
+		} else if (strcmp(argv[0], "mx7d") == 0) {
+			plat_config_data = &mx7d_boot_config;
+		} else if (strcmp(argv[0], "mx6ul") == 0) {
+			plat_config_data = &mx6ul_boot_config;
+		} else
+			usage();
+		argc--;
+		argv++;
+	}
+	else {
+		ret = discover_boot_rom_version();
+		if (ret != 0) {
+			printf("We can not find the right ROM version!\n");
+			exit(1);
+		}
+	}
+	if (0 == argc )
+		usage();
 
 	if (strcmp(argv[0], "dump") == 0)
 		return dump_main(argc, argv);

@@ -62,6 +62,16 @@ typedef struct _platform_config_t {
 } platform_config;
 
 extern platform_config *plat_config_data;
+extern platform_config mx23_boot_config;
+extern platform_config mx28_boot_config;
+extern platform_config mx50_boot_config;
+extern platform_config mx53to1_boot_config;
+extern platform_config mx53to2_boot_config;
+extern platform_config mx6q_boot_config;
+extern platform_config mx6sx_boot_config;
+extern platform_config mx6sx_to_1_2_boot_config;
+extern platform_config mx7d_boot_config;
+extern platform_config mx6ul_boot_config;
 
 extern int discover_boot_rom_version(void);
 
