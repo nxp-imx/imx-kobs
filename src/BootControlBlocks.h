@@ -54,6 +54,8 @@
 //! This structure holds the timing for the NAND.  This data is used by
 //! rom_nand_hal_GpmiSetNandTiming to setup the GPMI hardware registers.
 
+#include <stdint.h>
+
 typedef struct _NAND_Timing {
 	uint8_t m_u8DataSetup;
 	uint8_t m_u8DataHold;
