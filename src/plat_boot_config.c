@@ -163,6 +163,19 @@ static platform_config mx6ul_boot_config = {
 	.rom_mtd_commit_structures = v6_rom_mtd_commit_structures,
 };
 
+static platform_config mx8_boot_config = {
+	.m_u32RomVer = ROM_Version_5,
+	.m_u32EnDISBBM = 0,
+	.m_u32EnBootStreamVerify = 0,
+	.m_u32UseNfcGeo = 0,
+	.m_u32UseMultiBootArea = 0,
+	.m_u32UseSinglePageStride = 0,
+	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
+	.m_u32MaxEccStrength = 62,
+	.rom_mtd_init = v4_rom_mtd_init,
+	.rom_mtd_commit_structures = v5_rom_mtd_commit_structures,
+};
+
 int discover_boot_rom_version(void)
 {
 	FILE         *cpuinfo;
@@ -174,8 +187,23 @@ int discover_boot_rom_version(void)
 	static char  *plat_imx6sx = "i.MX6SX";
 	static char  *plat_imx6ul = "i.MX6UL";
 	static char  *plat_imx6ull = "i.MX6ULL";
+	static char  *plat_imx8 = "i.MX8";
 	char *rev;
 	int system_rev, hw_system_rev = 0;
+
+
+	/* check if it is i.MX8 platform */
+	soc_id = fopen("/sys/devices/soc0/soc_id", "r");
+	if (!soc_id) {
+		exit(1);
+	}
+	fgets(line_buffer, sizeof(line_buffer), soc_id);
+
+	if (!strncmp(line_buffer, plat_imx8, strlen(plat_imx8))) {
+		plat_config_data = &mx8_boot_config;
+		plat_config_data->m_u32Arm_type = MX8;
+		return 0;
+	}
 
 	cpuinfo = fopen("/proc/cpuinfo", "r");
 	if (!cpuinfo) {
