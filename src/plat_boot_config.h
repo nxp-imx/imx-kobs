@@ -45,6 +45,7 @@
 #define MX6DL	0x61
 
 #define MX7	0x7
+#define MX8	0x8
 
 typedef struct _platform_config_t {
 	uint32_t m_u32RomVer;

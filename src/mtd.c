@@ -898,6 +898,7 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 
 		/* verify it's a supported geometry */
 		if (plat_config_data->m_u32Arm_type != MX7 &&
+			plat_config_data->m_u32Arm_type != MX8 &&
 			plat_config_data->m_u32Arm_type != MX6Q &&
 			plat_config_data->m_u32Arm_type != MX6DL &&
 			plat_config_data->m_u32Arm_type != MX6 &&
