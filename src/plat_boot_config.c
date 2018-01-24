@@ -163,7 +163,7 @@ static platform_config mx6ul_boot_config = {
 	.rom_mtd_commit_structures = v6_rom_mtd_commit_structures,
 };
 
-static platform_config mx8_boot_config = {
+static platform_config mx8q_boot_config = {
 	.m_u32RomVer = ROM_Version_5,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnBootStreamVerify = 0,
@@ -174,6 +174,19 @@ static platform_config mx8_boot_config = {
 	.m_u32MaxEccStrength = 62,
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v5_rom_mtd_commit_structures,
+};
+
+static platform_config mx8mq_boot_config = {
+	.m_u32RomVer = ROM_Version_6,
+	.m_u32EnDISBBM = 0,
+	.m_u32EnBootStreamVerify = 0,
+	.m_u32UseNfcGeo = 0,
+	.m_u32UseMultiBootArea = 0,
+	.m_u32UseSinglePageStride = 0,
+	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
+	.m_u32MaxEccStrength = 62,
+	.rom_mtd_init = v4_rom_mtd_init,
+	.rom_mtd_commit_structures = v7_rom_mtd_commit_structures,
 };
 
 int discover_boot_rom_version(void)
@@ -187,20 +200,29 @@ int discover_boot_rom_version(void)
 	static char  *plat_imx6sx = "i.MX6SX";
 	static char  *plat_imx6ul = "i.MX6UL";
 	static char  *plat_imx6ull = "i.MX6ULL";
-	static char  *plat_imx8 = "i.MX8";
+	static char  *plat_imx8q = "i.MX8Q"; /* i.MX8QM or i.MX8QXP */
+	static char  *plat_imx8mq = "i.MX8MQ"; /* i.MX8MQ(mscale) */
 	char *rev;
 	int system_rev, hw_system_rev = 0;
 
 
 	/* check if it is i.MX8 platform */
 	soc_id = fopen("/sys/devices/soc0/soc_id", "r");
+
 	if (soc_id) {
 		fgets(line_buffer, sizeof(line_buffer), soc_id);
 		fclose(soc_id);
 
-		if (!strncmp(line_buffer, plat_imx8, strlen(plat_imx8))) {
-			plat_config_data = &mx8_boot_config;
-			plat_config_data->m_u32Arm_type = MX8;
+		if (!strncmp(line_buffer, plat_imx8q, strlen(plat_imx8q))) {
+
+			plat_config_data = &mx8q_boot_config;
+			plat_config_data->m_u32Arm_type = MX8Q;
+			return 0;
+
+		} else if (!strncmp(line_buffer, plat_imx8mq, strlen(plat_imx8mq))) {
+
+			plat_config_data = &mx8mq_boot_config;
+			plat_config_data->m_u32Arm_type = MX8MQ;
 			return 0;
 		}
 

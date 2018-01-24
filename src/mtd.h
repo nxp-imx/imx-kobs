@@ -226,6 +226,7 @@ enum {
 	ROM_Version_3	    =  3, /* e.g., i.MX50, iMX6dqsl */
 	ROM_Version_4	    =  4, /* e.g., i.MX6sx */
 	ROM_Version_5	    =  5, /* e.g., i.MX6sx TO1.2*/
+	ROM_Version_6	    =  6, /* e.g., i.MX8MQ*/
 };
 
 static inline int mtd_pages_per_block(struct mtd_data *md)
@@ -307,6 +308,7 @@ int v3_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags);
 int v4_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags);
 int v5_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags);
 int v6_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags);
+int v7_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags);
 
 int mtd_set_ecc_mode(struct mtd_data *md, int ecc);
 
