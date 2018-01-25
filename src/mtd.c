@@ -43,6 +43,20 @@
 
 #define RAND_16K (16 * 1024)
 
+/* #define IMX8QM_HDMI_FW_SZ	0x19c00 */
+#define IMX8QM_HDMI_FW_SZ	0x1a000
+#define IMX8QM_SPL_SZ		0x3e000
+
+#define IMX8QM_SPL_OFF		0x19c00
+#define IMX8QM_FIT_OFF		0x57c00
+
+
+unsigned int  extra_boot_stream1_pos;
+unsigned int  extra_boot_stream2_pos;
+unsigned int  extra_boot_stream_size_in_bytes;
+unsigned int  extra_boot_stream_size_in_pages;
+unsigned int  extra_boot_stream_size_in_blocks;
+
 const struct mtd_config default_mtd_config = {
 	.chip_count = 1,
 	.chip_0_device_path = "/dev/mtd0",
@@ -898,7 +912,8 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 
 		/* verify it's a supported geometry */
 		if (plat_config_data->m_u32Arm_type != MX7 &&
-			plat_config_data->m_u32Arm_type != MX8 &&
+			plat_config_data->m_u32Arm_type != MX8Q &&
+			plat_config_data->m_u32Arm_type != MX8MQ &&
 			plat_config_data->m_u32Arm_type != MX6Q &&
 			plat_config_data->m_u32Arm_type != MX6DL &&
 			plat_config_data->m_u32Arm_type != MX6 &&
@@ -1653,6 +1668,11 @@ int mtd_load_all_boot_structures(struct mtd_data *md)
 	return 0;
 }
 
+static inline int need_extra_boot_stream()
+{
+	return plat_config_data->m_u32RomVer == ROM_Version_6;
+}
+
 /* single chip version */
 int mtd_dump_structure(struct mtd_data *md)
 {
@@ -1840,6 +1860,7 @@ int mtd_dump_structure(struct mtd_data *md)
 	case ROM_Version_3:
 	case ROM_Version_4:
 	case ROM_Version_5:
+	case ROM_Version_6:
 #undef P3
 #define P3(x)	printf("  %s = 0x%08x\n", #x, md->fcb.x)
 		printf("FCB\n");
@@ -1954,6 +1975,20 @@ int mtd_dump_structure(struct mtd_data *md)
 			md->fcb.FCB_Block.m_u32Firmware2_startingPage* page_size,
 			md->fcb.FCB_Block.m_u32PagesInFirmware2 * page_size,
 			mtd_size(md) - md->fcb.FCB_Block.m_u32Firmware2_startingPage* page_size);
+
+		if (need_extra_boot_stream()) {
+			printf("Extra Firmware: image #0 @ 0x%x size 0x%x - available 0x%x\n",
+				extra_boot_stream1_pos,
+				extra_boot_stream_size_in_bytes,
+				md->fcb.FCB_Block.m_u32Firmware2_startingPage * page_size
+				- extra_boot_stream1_pos);
+
+			printf("Firmware: image #1 @ 0x%x size 0x%x - available 0x%x\n",
+				extra_boot_stream2_pos,
+				extra_boot_stream_size_in_bytes,
+				mtd_size(md) - extra_boot_stream2_pos);
+		}
+
 		break;
 	default:
 		printf("unsupported ROM version \n");
@@ -1970,8 +2005,10 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 	FCB_ROM_NAND_Timing_t *t = &b->m_NANDTiming;
 	struct nfc_geometry *geo = &md->nfc_geometry;
 	unsigned int  max_boot_stream_size_in_bytes;
+	unsigned int  max_boot_stream_size_in_block;
 	unsigned int  boot_stream_size_in_bytes;
 	unsigned int  boot_stream_size_in_pages;
+	unsigned int  boot_stream_size_in_blocks;
 	unsigned int  boot_stream1_pos;
 	unsigned int  boot_stream2_pos;
 
@@ -1987,26 +2024,69 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 	 * The boot area will contain both search areas and two copies of the
 	 * boot stream.
 	 */
+
 	max_boot_stream_size_in_bytes =
 		(mtd_size(md) - cfg->search_area_size_in_bytes * 2) / 2;
 
+	max_boot_stream_size_in_block = max_boot_stream_size_in_bytes / mtd_erasesize(md);
+
 	/* Figure out how large the boot stream is. */
-	fseek(fp, 0, SEEK_END);
-	boot_stream_size_in_bytes = ftell(fp);
-	rewind(fp);
+
+	/* introduce the extra boot stream since i.MX8MQ, calculate the size of two
+	 * boot streams here*/
+
+	if (need_extra_boot_stream()) {
+	/* TODO: hardcode the HDMI FW size here */
+		boot_stream_size_in_bytes = IMX8QM_SPL_SZ;
+		boot_stream_size_in_blocks =
+			(boot_stream_size_in_bytes + mtd_erasesize(md) - 1)
+					/ mtd_erasesize(md);
+
+		extra_boot_stream_size_in_bytes = IMX8QM_SPL_SZ;
+		extra_boot_stream_size_in_pages = (extra_boot_stream_size_in_bytes
+					+ mtd_writesize(md) -1) / mtd_writesize(md);
+		extra_boot_stream_size_in_blocks =
+			(extra_boot_stream_size_in_bytes + mtd_erasesize(md) - 1)
+					/ mtd_erasesize(md);
+	} else {
+		fseek(fp, 0, SEEK_END);
+		boot_stream_size_in_bytes = ftell(fp);
+		rewind(fp);
+	}
 
 	boot_stream_size_in_pages =
 		(boot_stream_size_in_bytes + (mtd_writesize(md) - 1)) /
 					mtd_writesize(md);
 	/* Check if the boot stream will fit. */
-	if (boot_stream_size_in_bytes >= max_boot_stream_size_in_bytes) {
-		fprintf(stderr, "mtd: bootstream too large\n");
-		return -1;
+
+	/* for the i.MX8MQ, the first part of the boot stream (bs_p1) is the
+	 * prvious boot stream, while the boot stream part2 (bs_p2) need to be written
+	 * to the next block */
+	if (need_extra_boot_stream()) {
+		if (boot_stream_size_in_blocks + extra_boot_stream_size_in_blocks
+				> max_boot_stream_size_in_block) {
+			fprintf(stderr, "mtd: two bootstreams too large\n");
+			return -1;
+		}
+	} else {
+		if (boot_stream_size_in_bytes >= max_boot_stream_size_in_bytes) {
+			fprintf(stderr, "mtd: bootstream too large\n");
+			return -1;
+		}
 	}
 
 	/* Compute the positions of the boot stream copies. */
 	boot_stream1_pos = 2 * cfg->search_area_size_in_bytes;
 	boot_stream2_pos = boot_stream1_pos + max_boot_stream_size_in_bytes;
+
+	if (need_extra_boot_stream()) {
+		extra_boot_stream1_pos =
+			boot_stream1_pos + mtd_erasesize(md) *
+			boot_stream_size_in_blocks;
+		extra_boot_stream2_pos =
+			boot_stream2_pos + mtd_erasesize(md) *
+			boot_stream_size_in_blocks;
+	}
 
 	vp(md, "mtd: max_boot_stream_size_in_bytes = %d\n"
 		"mtd: boot_stream_size_in_bytes = %d\n"
@@ -2014,6 +2094,13 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 			max_boot_stream_size_in_bytes,
 			boot_stream_size_in_bytes,
 			boot_stream_size_in_pages);
+
+	if (need_extra_boot_stream())
+		vp(md, "mtd: extra_boot_stream_size_in_bytes =%d\n"
+			"mtd: extra_boot_stream_size_in_pages = %d\n",
+				extra_boot_stream_size_in_bytes,
+				extra_boot_stream_size_in_pages);
+
 	vp(md, "mtd: #1 0x%08x - 0x%08x (0x%08x)\n"
 		"mtd: #2 0x%08x - 0x%08x (0x%08x)\n",
 			boot_stream1_pos,
@@ -2744,6 +2831,110 @@ int mtd_commit_bcb(struct mtd_data *md, char *bcb_name,
 	return err;
 }
 
+int write_extra_boot_stream(struct mtd_data *md, FILE *fp)
+{
+	int start, size;
+	loff_t ofs, end;
+	int i, r, chunk;
+	int chip = 0;
+	struct fcb_block *fcb = &md->fcb.FCB_Block;
+	int ret;
+
+	vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+	for (i = 0; i < 2; i++) {
+		if (fp == NULL)
+			continue;
+
+		if (i == 0) {
+			start = extra_boot_stream1_pos;
+			size      = extra_boot_stream_size_in_bytes;
+			end       = fcb->m_u32Firmware2_startingPage * mtd_writesize(md);
+		} else {
+			start = extra_boot_stream2_pos;
+			size      = extra_boot_stream_size_in_bytes;
+			end       = mtd_size(md);
+		}
+
+		vp(md, "mtd: Writting %s: #%d @%d: 0x%08x - 0x%08x\n",
+			(char*)md->private, i, chip, start, start + size);
+
+		r = fseek(fp, IMX8QM_HDMI_FW_SZ, SEEK_SET);
+		if (r < 0) {
+			fprintf(stderr, "set file position indicator failed\n");
+			return r;
+		}
+
+		vp(md, "mtd: Writting %s: #%d @%d: 0x%08x - 0x%08x\n",
+			(char*)md->private, i, chip, start, start + size);
+
+		/* Begin to write the image. */
+		ofs = start;
+		while (ofs < end && size > 0) {
+			while (mtd_isbad(md, chip, ofs) == 1) {
+				vp(md, "mtd: Skipping bad block at 0x%llx\n", ofs);
+				ofs += mtd_erasesize(md);
+			}
+
+			chunk = size;
+
+			/*
+			 * Check if we've entered a new block and, if so, erase
+			 * it before beginning to write it.
+			 */
+			if ((ofs % mtd_erasesize(md)) == 0) {
+				r = mtd_erase_block(md, chip, ofs);
+				if (r < 0) {
+					fprintf(stderr, "mtd: Failed to erase block"
+						       "@0x%llx\n", ofs);
+					ofs += mtd_erasesize(md);
+					continue;
+				}
+			}
+
+			if (chunk > mtd_writesize(md))
+				chunk = mtd_writesize(md);
+
+			r = fread(md->buf, 1, chunk, fp);
+			if (r < 0) {
+				fprintf(stderr, "mtd: Failed %d (fread %d)\n", r, chunk);
+				return -1;
+			}
+			if (r < chunk) {
+				memset(md->buf + r, 0, chunk - r);
+				vp(md, "mtd: The last page is not full : %d\n", r);
+			}
+
+			/* write page */
+			r = mtd_write_page(md, chip, ofs, 1);
+			if (r != mtd_writesize(md))
+				fprintf(stderr, "mtd: Failed to write BS @0x%llx (%d)\n",
+					ofs, r);
+
+			ofs += mtd_writesize(md);
+			size -= chunk;
+		}
+
+		/*
+		 * Write one safe guard page:
+		 *  The Image_len of uboot is bigger then the real size of
+		 *  uboot by 1K. The ROM will get all 0xff error in this case.
+		 *  So we write one more page for safe guard.
+		 */
+		memset(md->buf, 0, mtd_writesize(md));
+		r = mtd_write_page(md, chip, ofs, 1);
+		if (r != mtd_writesize(md))
+			fprintf(stderr, "Failed to write safe page\n");
+		vp(md, "mtd: We write one page for save guard. *\n");
+
+		if (ofs >= end) {
+			fprintf(stderr, "mtd: Failed to write BS#%d\n", i);
+			return -1;
+		}
+	}
+	return 0;
+}
+
+
 int write_boot_stream(struct mtd_data *md, FILE *fp)
 {
 	int startpage, start, size;
@@ -2776,6 +2967,7 @@ int write_boot_stream(struct mtd_data *md, FILE *fp)
 
 		/* Begin to write the image. */
 		rewind(fp);
+
 		ofs = start;
 		while (ofs < end && size > 0) {
 			while (mtd_isbad(md, chip, ofs) == 1) {
@@ -3388,6 +3580,23 @@ int v6_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 	/* [3] Write the two boot streams. */
 	return write_boot_stream(md, fp);
 }
+
+int v7_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
+{
+	int err;
+
+	err = v5_rom_mtd_commit_structures(md, fp, flags);
+	if (err) {
+		fprintf(stderr, "write the first part of boot stream failed");
+	}
+
+	printf("write the second part of boot stream\n");
+	err = write_extra_boot_stream(md, fp);
+	if (err) {
+		fprintf(stderr, "write the second part of boot stream failed");
+	}
+}
+
 #undef ARG
 #define ARG(x) { .name = #x , .offset = offsetof(struct mtd_config, x), .ignore = false, }
 #define ARG_IGNORE(x) { .name = #x , .offset = offsetof(struct mtd_config, x), .ignore = true, }
