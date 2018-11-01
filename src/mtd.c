@@ -193,7 +193,10 @@ int mtd_erase(struct mtd_data *md, int chip, loff_t ofs, size_t size)
 		ofs += chunk;
 		size -= chunk;
 		if (ofs >= md->part[chip].info.size) {
-			fprintf(stderr, "mtd: erase stepping bounds\n");
+			fprintf(stderr, "mtd: erase stepping bounds\n"
+				"\tofs >= chip_size\n"
+				"\t%#llx >= %#x\n",
+				(unsigned long long)ofs, md->part[chip].info.size);
 			return -1;
 		}
 	}
@@ -254,7 +257,10 @@ int mtd_read(struct mtd_data *md, int chip, void *data, size_t size, loff_t ofs)
 		if (ofs >= md->part[chip].info.size) {
 			if (size == 0)	/* read to the end */
 				break;
-			fprintf(stderr, "mtd: read stepping bounds\n");
+			fprintf(stderr, "mtd: read stepping bounds\n"
+				"\tofs >= chip_size\n"
+				"\t%#llx >= %#x\n",
+				(unsigned long long)ofs, md->part[chip].info.size);
 			return -1;
 		}
 	}
@@ -399,7 +405,10 @@ int mtd_write(struct mtd_data *md, int chip, const void *data, size_t size, loff
 		if (ofs >= md->part[chip].info.size) {
 			if (size == 0)	/* read to the end */
 				break;
-			fprintf(stderr, "mtd: %s stepping bounds\n", __func__);
+			fprintf(stderr, "mtd: %s stepping bounds\n"
+				"\tofs >= chip_size\n"
+				"\t%#llx >= %#x\n",
+				__func__, (unsigned long long)ofs, md->part[chip].info.size);
 			return -1;
 		}
 	}
@@ -1421,7 +1430,10 @@ int mtd_load_all_boot_structures(struct mtd_data *md)
 
 	/* make sure it fits */
 	if (search_area_sz * 6 > mtd_size(md)) {
-		fprintf(stderr, "mtd: search areas too large\n");
+		fprintf(stderr, "mtd: search areas too large\n"
+			"\tsearch_area_sz * 6 > mtd_size\n"
+			"\t%#x * 6 > %#x",
+			search_area_sz, mtd_size(md));
 		return -1;
 	}
 
@@ -2013,7 +2025,10 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 	unsigned int  boot_stream2_pos;
 
 	if ((cfg->search_area_size_in_bytes * 2) > mtd_size(md)) {
-		fprintf(stderr, "mtd: mtd size too small\n");
+		fprintf(stderr, "mtd: mtd size too small\n"
+			"\tsearch_area_size_in_bytes * 2 > mtd_size\n"
+			"\t%#x * 2 > %#x\n",
+			cfg->search_area_size_in_bytes, mtd_size(md));
 		return -1;
 	}
 
@@ -2065,12 +2080,20 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 	if (need_extra_boot_stream()) {
 		if (boot_stream_size_in_blocks + extra_boot_stream_size_in_blocks
 				> max_boot_stream_size_in_block) {
-			fprintf(stderr, "mtd: two bootstreams too large\n");
+			fprintf(stderr, "mtd: two bootstreams too large\n"
+				"\tboot_stream_size_in_blocks + extra_boot_stream_size_in_blocks > "
+				"max_boot_stream_size_in_block\n"
+				"\t%#x + %#x > %#x\n",
+				boot_stream_size_in_blocks, extra_boot_stream_size_in_blocks,
+				max_boot_stream_size_in_block);
 			return -1;
 		}
 	} else {
 		if (boot_stream_size_in_bytes >= max_boot_stream_size_in_bytes) {
-			fprintf(stderr, "mtd: bootstream too large\n");
+			fprintf(stderr, "mtd: bootstream too large\n"
+				"\tboot_stream_size_in_bytes > max_boot_stream_size_in_bytes\n"
+				"\t%#x > %#x\n", 
+				boot_stream_size_in_bytes, max_boot_stream_size_in_bytes);
 			return -1;
 		}
 	}
@@ -2215,7 +2238,10 @@ int v0_rom_mtd_init(struct mtd_data *md, FILE *fp)
 	search_area_sz = (1 << md->cfg.search_exponent) * stride;
 
 	if (search_area_sz * 6 > mtd_size(md)) {
-		fprintf(stderr, "mtd: mtd size too small\n");
+		fprintf(stderr, "mtd: mtd size too small\n"
+			"\tsearch_area_sz * 6 > mtd_size\n"
+			"\t%#x * 6 > %x\n",
+			search_area_sz, mtd_size(md));
 		return -1;
 	}
 
@@ -2231,7 +2257,10 @@ int v0_rom_mtd_init(struct mtd_data *md, FILE *fp)
 	}
 
 	if (bootstream_sz >= max_bootstream_sz) {
-		fprintf(stderr, "mtd: bootstream too large\n");
+		fprintf(stderr, "mtd: bootstream too large\n"
+			"\tbootstream_sz >= max_bootstream_sz\n"
+			"\t%#x >= %#x\n",
+			bootstream_sz, max_bootstream_sz);
 		return -1;
 	}
 	bootstream1_pos = 6 * search_area_sz;
@@ -2520,7 +2549,10 @@ int v2_rom_mtd_init(struct mtd_data *md, FILE *fp)
 	//----------------------------------------------------------------------
 
 	if ((search_area_size_in_bytes * 2) > mtd_size(md)) {
-		fprintf(stderr, "mtd: mtd size too small\n");
+		fprintf(stderr, "mtd: mtd size too small\n"
+			"\tsearch_area_size_in_bytes * 2 > mtd_size\n"
+			"\t%#x * 2 > %#x",
+			search_area_size_in_bytes, mtd_size(md));
 		return -1;
 	}
 
@@ -2533,7 +2565,6 @@ int v2_rom_mtd_init(struct mtd_data *md, FILE *fp)
 	//----------------------------------------------------------------------
 
 	max_boot_stream_size_in_bytes =
-
 		(mtd_size(md) - search_area_size_in_bytes * 2) /
 		//--------------------------------------------//
 					2;
@@ -2562,7 +2593,10 @@ int v2_rom_mtd_init(struct mtd_data *md, FILE *fp)
 	//----------------------------------------------------------------------
 
 	if (boot_stream_size_in_bytes >= max_boot_stream_size_in_bytes) {
-		fprintf(stderr, "mtd: bootstream too large\n");
+		fprintf(stderr, "mtd: bootstream too large\n"
+			"\tboot_stream_size_in_bytes >= max_boot_stream_size_in_bytes\n"
+			"\t%#x > %#x",
+			boot_stream_size_in_bytes, max_boot_stream_size_in_bytes);
 		return -1;
 	}
 
