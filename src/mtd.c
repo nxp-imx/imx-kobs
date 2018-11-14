@@ -50,6 +50,9 @@
 #define IMX8QM_SPL_OFF		0x19c00
 #define IMX8QM_FIT_OFF		0x57c00
 
+/* define FUSE value location */
+#define FUSE_NAND_SEARCH_CNT_OFFS 0xb40
+#define FUSE_NAND_SEARCH_CNT_BIT_OFFS 6
 
 unsigned int  extra_boot_stream1_pos;
 unsigned int  extra_boot_stream2_pos;
@@ -817,6 +820,7 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	int i, k, j, r, no;
 	loff_t ofs;
 	FILE *fp;
+	char tmp;
 
 	md = malloc(sizeof(*md));
 	if (md == NULL)
@@ -853,6 +857,34 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 		vp(md, "mtd: use new bch layout raw access mode\n");
 	else
 		vp(md, "mtd: use legacy raw access mode\n");
+
+	/*
+	 * check if need to read nand_boot_search_count fuse value on some
+	 * chips to determine the exponential value, for instance, i.MX8QXP
+	 */
+	fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "r");
+	if (fp) {
+		/* move to the nand_boot_search_count offset */
+		if (!fseek(fp, FUSE_NAND_SEARCH_CNT_OFFS, SEEK_SET)) {
+			/* read out the nand_boot_search_count from fuse */
+			if (fread(&tmp, 1, 1, fp) == 1) {
+				switch (tmp >> FUSE_NAND_SEARCH_CNT_BIT_OFFS) {
+					case 0:
+					case 1:
+						md->cfg.search_exponent = 1;
+						break;
+					case 2:
+						md->cfg.search_exponent = 2;
+						break;
+					case 3:
+						md->cfg.search_exponent = 3;
+						break;
+				}
+				vp(md, "mtd: search_exponent was set by fuse as %d\n", md->cfg.search_exponent);
+			}
+		}
+		fclose(fp);
+	}
 
 	if (plat_config_data->m_u32UseMultiBootArea) {
 
