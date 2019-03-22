@@ -163,19 +163,6 @@ static platform_config mx6ul_boot_config = {
 	.rom_mtd_commit_structures = v6_rom_mtd_commit_structures,
 };
 
-static platform_config mx8q_boot_config = {
-	.m_u32RomVer = ROM_Version_5,
-	.m_u32EnDISBBM = 0,
-	.m_u32EnBootStreamVerify = 0,
-	.m_u32UseNfcGeo = 0,
-	.m_u32UseMultiBootArea = 0,
-	.m_u32UseSinglePageStride = 0,
-	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
-	.m_u32MaxEccStrength = 62,
-	.rom_mtd_init = v4_rom_mtd_init,
-	.rom_mtd_commit_structures = v5_rom_mtd_commit_structures,
-};
-
 static platform_config mx8mq_boot_config = {
 	.m_u32RomVer = ROM_Version_6,
 	.m_u32EnDISBBM = 0,
@@ -187,6 +174,19 @@ static platform_config mx8mq_boot_config = {
 	.m_u32MaxEccStrength = 62,
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v7_rom_mtd_commit_structures,
+};
+
+static platform_config mx8q_boot_config = {
+	.m_u32RomVer = ROM_Version_7,
+	.m_u32EnDISBBM = 0,
+	.m_u32EnBootStreamVerify = 0,
+	.m_u32UseNfcGeo = 0,
+	.m_u32UseMultiBootArea = 0,
+	.m_u32UseSinglePageStride = 0,
+	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
+	.m_u32MaxEccStrength = 62,
+	.rom_mtd_init = v4_rom_mtd_init,
+	.rom_mtd_commit_structures = v5_rom_mtd_commit_structures,
 };
 
 int discover_boot_rom_version(void)
