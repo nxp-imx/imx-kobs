@@ -107,6 +107,7 @@ void usage(void)
 	"    --boot_stream_minor_version=<value> .. NCB field (default 0)\n"
 	"    --boot_stream_sub_version=<value> .... NCB field (default 0)\n"
 	"    --ncb_version=<value> ................ NCB field (default 3)\n"
+	"    --secondary_boot_stream_off_in_MB=<value> (default 64MB)\n"
 	"\n"
 	"   [KEY] key management related options\n"
 	"        -d ............................... Use device key (OTP) (not yet supported)\n"

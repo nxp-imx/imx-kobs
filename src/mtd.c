@@ -83,6 +83,7 @@ const struct mtd_config default_mtd_config = {
 	.ncb_version = 3,
 	.boot_stream_1_address = 0,
 	.boot_stream_2_address = 0,
+	.secondary_boot_stream_off_in_MB = 64,
 };
 
 static inline int multichip(struct mtd_data *md)
@@ -1721,6 +1722,11 @@ static inline int need_extra_boot_stream()
 	return plat_config_data->m_u32RomVer == ROM_Version_6;
 }
 
+static inline int fixed_secondary_boot_strem()
+{
+	return plat_config_data->m_u32RomVer == ROM_Version_7;
+}
+
 /* single chip version */
 int mtd_dump_structure(struct mtd_data *md)
 {
@@ -1909,6 +1915,7 @@ int mtd_dump_structure(struct mtd_data *md)
 	case ROM_Version_4:
 	case ROM_Version_5:
 	case ROM_Version_6:
+	case ROM_Version_7:
 #undef P3
 #define P3(x)	printf("  %s = 0x%08x\n", #x, md->fcb.x)
 		printf("FCB\n");
@@ -2045,6 +2052,11 @@ int mtd_dump_structure(struct mtd_data *md)
 	return 0;
 }
 
+static int is_power_of_two(int x)
+{
+	return ((x) != 0) && (((x) & ((x) - 1)) == 0);
+}
+
 static int fill_fcb(struct mtd_data *md, FILE *fp)
 {
 	BCB_ROM_BootBlockStruct_t *fcb = &md->fcb;
@@ -2052,13 +2064,15 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 	struct fcb_block *b      = &fcb->FCB_Block;
 	FCB_ROM_NAND_Timing_t *t = &b->m_NANDTiming;
 	struct nfc_geometry *geo = &md->nfc_geometry;
-	unsigned int  max_boot_stream_size_in_bytes;
-	unsigned int  max_boot_stream_size_in_block;
-	unsigned int  boot_stream_size_in_bytes;
-	unsigned int  boot_stream_size_in_pages;
-	unsigned int  boot_stream_size_in_blocks;
-	unsigned int  boot_stream1_pos;
-	unsigned int  boot_stream2_pos;
+	unsigned int max_boot_stream_size_in_bytes;
+	unsigned int max_boot_stream_size_in_block;
+	unsigned int boot_stream_size_in_bytes;
+	unsigned int boot_stream_size_in_pages;
+	unsigned int boot_stream_size_in_blocks;
+	unsigned int boot_stream1_pos;
+	unsigned int boot_stream2_pos;
+	unsigned int sbs_off_byte; /* secondary_boot_stream_off_in_byte  */
+	int valid_offset_flag;
 
 	if ((cfg->search_area_size_in_bytes * 2) > mtd_size(md)) {
 		fprintf(stderr, "mtd: mtd size too small\n"
@@ -2145,6 +2159,101 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 		extra_boot_stream2_pos =
 			boot_stream2_pos + mtd_erasesize(md) *
 			boot_stream_size_in_blocks;
+	}
+
+	/* set the boot_stream2_pos for fixed secondary boot stream case */
+
+	/*
+	 * For i.MX8Q, the secondary boot stream located in fixed offset as
+	 * following tables, the formula is offset = 1MB * 2^N
+	 */
+
+	/*
+         * +-----------------------+---------------+-----------------------+
+         * |         FUSE          |       N       |      OFFSET(MB)       |
+         * +-----------------------+---------------+-----------------------+
+         * |          0            |       2       |          4            |
+         * +-----------------------+---------------+-----------------------+
+         * |          1            |       1       |          2            |
+         * +-----------------------+---------------+-----------------------+
+         * |          2            |       x       |          x            |
+         * +-----------------------+---------------+-----------------------+
+         * |          3            |       3       |          8            |
+         * +-----------------------+---------------+-----------------------+
+         * |          4            |       4       |          16           |
+         * +-----------------------+---------------+-----------------------+
+         * |          5            |       5       |          32           |
+         * +-----------------------+---------------+-----------------------+
+         * |          6            |       6       |          64           |
+         * +-----------------------+---------------+-----------------------+
+         * |          7            |       7       |          128          |
+         * +-----------------------+---------------+-----------------------+
+         * |          8            |       8       |          256          |
+         * +-----------------------+---------------+-----------------------+
+         * |          9            |       9       |          512          |
+         * +-----------------------+---------------+-----------------------+
+         * |          10           |       10      |          1024         |
+         * +-----------------------+---------------+-----------------------+
+         * |          others       |               disabled                |
+         * +-----------------------+---------------------------------------+
+	 */
+
+	if (fixed_secondary_boot_strem()) {
+		/* check if the number is valid */
+		if ((!is_power_of_two(cfg->secondary_boot_stream_off_in_MB)) ||
+		    (cfg->secondary_boot_stream_off_in_MB < 2) ||
+		    (cfg->secondary_boot_stream_off_in_MB > 1024)) {
+			vp(md, "secondary_boot_stream_off_in_MB"
+				" must be power of 2 and between 2 ~ 1024\n");
+			return -1;
+		}
+		/* check if the offset fit for boot partition */
+		sbs_off_byte = cfg->secondary_boot_stream_off_in_MB << 20;
+		valid_offset_flag = 0;
+
+		while (sbs_off_byte <=
+		       boot_stream1_pos + boot_stream_size_in_bytes) {
+			vp(md, "specified secondary boot stream offset"
+				" %dMB overlap with the primary boot stream\n", sbs_off_byte >> 20);
+			sbs_off_byte <<= 1;
+		}
+
+		while (sbs_off_byte >
+		       boot_stream1_pos + boot_stream_size_in_bytes) {
+
+			if (sbs_off_byte >
+			    mtd_size(md) - boot_stream_size_in_bytes) {
+
+				vp(md, "cannot fit the secondary boot stream"
+					" with this offset %d MB\n", sbs_off_byte >> 20);
+				sbs_off_byte >>= 1;
+
+			} else {
+				valid_offset_flag = 1;
+				break;
+			}
+		}
+
+		if (valid_offset_flag) {
+			vp(md, "secondary boot stream offset %dMB fit in boot partition\n"
+			       "please make sure the fuse value match the settings\n",
+			       sbs_off_byte >> 20);
+			if (sbs_off_byte >> 20 != cfg->secondary_boot_stream_off_in_MB) {
+				vp(md,"\n"
+				   "!!! WARNING: ==========================================\n"
+				   "!!! WARNING: SECONDARY BOOT STREAM WRITE TO %dMB OFFSET\n"
+				   "!!! WARNING: NOT SAME AS THE SPECIFIED %dMB OFFSET \n"
+				   "!!! WARNING: PLEASE DOUBLE CHECK THE FUSE SETTING.\n"
+				   "!!! WARNING: ==========================================\n"
+				   "\n"
+				  , sbs_off_byte >> 20, cfg->secondary_boot_stream_off_in_MB);
+			}
+			boot_stream2_pos = sbs_off_byte;
+		} else {
+			vp(md, "none of above secondary boot stream offset fit boot partition\n"
+			       "please enlarge your boot partition and retry...\n");
+				return -1;
+		}
 	}
 
 	vp(md, "mtd: max_boot_stream_size_in_bytes = %d\n"
@@ -3695,6 +3804,7 @@ static const struct {
 	ARG(ncb_version),
 	ARG(boot_stream_1_address),
 	ARG(boot_stream_2_address),
+	ARG(secondary_boot_stream_off_in_MB),
 }, mtd_charp_args[] = {
 	ARG(chip_0_device_path),
 	ARG(chip_1_device_path),
@@ -3890,6 +4000,7 @@ void mtd_cfg_dump(struct mtd_config *cfg)
 	Pd(ncb_version);
 	Pd(boot_stream_1_address);
 	Pd(boot_stream_2_address);
+	Pd(secondary_boot_stream_off_in_MB);
 #undef Pd
 #undef Ps
 }

@@ -88,6 +88,8 @@ struct mtd_config {
 	int stride_size_in_bytes;
 	int search_area_size_in_bytes;
 	int search_area_size_in_pages;
+	/* for i.MX8Q secondary boot container*/
+	int secondary_boot_stream_off_in_MB;
 };
 
 extern const struct mtd_config default_mtd_config;
@@ -227,6 +229,7 @@ enum {
 	ROM_Version_4	    =  4, /* e.g., i.MX6sx */
 	ROM_Version_5	    =  5, /* e.g., i.MX6sx TO1.2*/
 	ROM_Version_6	    =  6, /* e.g., i.MX8MQ*/
+	ROM_Version_7	    =  7, /* e.g., i.MX8Q*/
 };
 
 static inline int mtd_pages_per_block(struct mtd_data *md)
