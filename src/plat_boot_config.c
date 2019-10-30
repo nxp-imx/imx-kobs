@@ -203,6 +203,7 @@ int discover_boot_rom_version(void)
 	static char  *plat_imx8q = "i.MX8Q"; /* i.MX8QM or i.MX8QXP */
 	static char  *plat_imx8mq = "i.MX8MQ"; /* i.MX8MQ(mscale) */
 	static char  *plat_imx8mm = "i.MX8MM";
+	static char  *plat_imx8mn = "i.MX8MN";
 	char *rev;
 	int system_rev, hw_system_rev = 0;
 
@@ -225,6 +226,10 @@ int discover_boot_rom_version(void)
 
 			plat_config_data = &mx8mq_boot_config;
 			plat_config_data->m_u32Arm_type = MX8MQ;
+			return 0;
+		} else if (!strncmp(line_buffer, plat_imx8mn, strlen(plat_imx8mn))) {
+			plat_config_data = &mx8q_boot_config;
+			plat_config_data->m_u32Arm_type = MX8MN;
 			return 0;
 		}
 

@@ -50,9 +50,14 @@
 #define IMX8QM_SPL_OFF		0x19c00
 #define IMX8QM_FIT_OFF		0x57c00
 
-/* define FUSE value location */
-#define FUSE_NAND_SEARCH_CNT_OFFS 0xb40
-#define FUSE_NAND_SEARCH_CNT_BIT_OFFS 6
+/* define 8Q FUSE value location */
+#define MX8Q_FUSE_NAND_SEARCH_CNT_OFFS 0x700
+#define MX8Q_FUSE_NAND_SEARCH_CNT_BIT_OFFS 6
+#define MX8Q_FUSE_NAND_SEARCH_CNT_MASK 3
+/* define 8MN FUSE value location */
+#define MX8MN_FUSE_NAND_SEARCH_CNT_OFFS 0x29
+#define MX8MN_FUSE_NAND_SEARCH_CNT_BIT_OFFS 5
+#define MX8MN_FUSE_NAND_SEARCH_CNT_MASK 3
 
 unsigned int  extra_boot_stream1_pos;
 unsigned int  extra_boot_stream2_pos;
@@ -822,6 +827,7 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	loff_t ofs;
 	FILE *fp;
 	char tmp;
+	int fuse_off, fuse_bit, fuse_mask;
 
 	md = malloc(sizeof(*md));
 	if (md == NULL)
@@ -863,15 +869,32 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	 * check if need to read nand_boot_search_count fuse value on some
 	 * chips to determine the exponential value, for instance, i.MX8QXP
 	 */
-	if (plat_config_data->m_u32Arm_type == MX8Q) {
+	if (plat_config_data->m_u32Arm_type == MX8Q
+	    || plat_config_data->m_u32Arm_type == MX8MN) {
+
+		md->cfg.search_exponent = 1;
+		vp(md, "mtd: search_exponent set to 1 by default\n");
+
 		/* open the nvmem file */
-		fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "r");
+		if (plat_config_data->m_u32Arm_type == MX8Q) {
+			fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "rb");
+			fuse_off = MX8Q_FUSE_NAND_SEARCH_CNT_OFFS;
+			fuse_bit = MX8Q_FUSE_NAND_SEARCH_CNT_BIT_OFFS;
+			fuse_mask = MX8Q_FUSE_NAND_SEARCH_CNT_MASK;
+		}
+		if (plat_config_data->m_u32Arm_type == MX8MN) {
+			fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "rb");
+			fuse_off = MX8MN_FUSE_NAND_SEARCH_CNT_OFFS;
+			fuse_bit = MX8MN_FUSE_NAND_SEARCH_CNT_BIT_OFFS;
+			fuse_mask = MX8MN_FUSE_NAND_SEARCH_CNT_MASK;
+		}
 		if (fp) {
 			/* move to the nand_boot_search_count offset */
-			if (!fseek(fp, FUSE_NAND_SEARCH_CNT_OFFS, SEEK_SET)) {
+			if (!fseek(fp, fuse_off, SEEK_SET)) {
 				/* read out the nand_boot_search_count from fuse */
 				if (fread(&tmp, 1, 1, fp) == 1) {
-					switch (tmp >> FUSE_NAND_SEARCH_CNT_BIT_OFFS) {
+					vp(md, "read back from fuse: %x\n", tmp);
+					switch ((tmp >> fuse_bit) && fuse_mask) {
 						case 0:
 						case 1:
 							md->cfg.search_exponent = 1;
@@ -882,6 +905,8 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 						case 3:
 							md->cfg.search_exponent = 3;
 							break;
+						default:
+							md->cfg.search_exponent = 1;
 					}
 				vp(md, "mtd: search_exponent was set by fuse as %d\n"
 						, md->cfg.search_exponent);
@@ -960,6 +985,7 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 		if (plat_config_data->m_u32Arm_type != MX7 &&
 			plat_config_data->m_u32Arm_type != MX8Q &&
 			plat_config_data->m_u32Arm_type != MX8MQ &&
+			plat_config_data->m_u32Arm_type != MX8MN &&
 			plat_config_data->m_u32Arm_type != MX6Q &&
 			plat_config_data->m_u32Arm_type != MX6DL &&
 			plat_config_data->m_u32Arm_type != MX6 &&
