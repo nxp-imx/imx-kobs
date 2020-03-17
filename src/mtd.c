@@ -178,6 +178,13 @@ int mtd_erase(struct mtd_data *md, int chip, loff_t ofs, size_t size)
 
 	nerase = 0;
 	while (size > 0) {
+		if (ofs >= md->part[chip].info.size) {
+			fprintf(stderr, "mtd: erase stepping bounds\n"
+				"\tofs >= chip_size\n"
+				"\t%#llx >= %#x\n",
+				(unsigned long long)ofs, md->part[chip].info.size);
+			return -1;
+		}
 		if (ofs + size > md->part[chip].info.size)
 			chunk = md->part[chip].info.size - ofs;
 		else
@@ -201,13 +208,6 @@ int mtd_erase(struct mtd_data *md, int chip, loff_t ofs, size_t size)
 		nerase += chunk;
 		ofs += chunk;
 		size -= chunk;
-		if (ofs >= md->part[chip].info.size) {
-			fprintf(stderr, "mtd: erase stepping bounds\n"
-				"\tofs >= chip_size\n"
-				"\t%#llx >= %#x\n",
-				(unsigned long long)ofs, md->part[chip].info.size);
-			return -1;
-		}
 	}
 
 	return nerase;
