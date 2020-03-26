@@ -201,6 +201,7 @@ int discover_boot_rom_version(void)
 	static char  *plat_imx6ul = "i.MX6UL";
 	static char  *plat_imx6ull = "i.MX6ULL";
 	static char  *plat_imx8q = "i.MX8Q"; /* i.MX8QM or i.MX8QXP */
+	static char  *plat_imx8dxl = "i.MX8DXL"; /* i.MX8DXL */
 	static char  *plat_imx8mq = "i.MX8MQ"; /* i.MX8MQ(mscale) */
 	static char  *plat_imx8mm = "i.MX8MM";
 	static char  *plat_imx8mn = "i.MX8MN";
@@ -215,7 +216,8 @@ int discover_boot_rom_version(void)
 		fgets(line_buffer, sizeof(line_buffer), soc_id);
 		fclose(soc_id);
 
-		if (!strncmp(line_buffer, plat_imx8q, strlen(plat_imx8q))) {
+		if (!strncmp(line_buffer, plat_imx8q, strlen(plat_imx8q))
+				|| !strncmp(line_buffer, plat_imx8dxl, strlen(plat_imx8dxl))) {
 
 			plat_config_data = &mx8q_boot_config;
 			plat_config_data->m_u32Arm_type = MX8Q;
