@@ -49,6 +49,7 @@
 #define MX8Q	0x8
 #define MX8MQ	0x81
 #define MX8MN	0x82
+#define MX8MP	0x83
 
 typedef struct _platform_config_t {
 	uint32_t m_u32RomVer;

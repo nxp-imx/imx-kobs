@@ -870,7 +870,8 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	 * chips to determine the exponential value, for instance, i.MX8QXP
 	 */
 	if (plat_config_data->m_u32Arm_type == MX8Q
-	    || plat_config_data->m_u32Arm_type == MX8MN) {
+	    || plat_config_data->m_u32Arm_type == MX8MN
+	    || plat_config_data->m_u32Arm_type == MX8MP) {
 
 		md->cfg.search_exponent = 1;
 		vp(md, "mtd: search_exponent set to 1 by default\n");
@@ -882,7 +883,8 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 			fuse_bit = MX8Q_FUSE_NAND_SEARCH_CNT_BIT_OFFS;
 			fuse_mask = MX8Q_FUSE_NAND_SEARCH_CNT_MASK;
 		}
-		if (plat_config_data->m_u32Arm_type == MX8MN) {
+		if (plat_config_data->m_u32Arm_type == MX8MN ||
+		    plat_config_data->m_u32Arm_type == MX8MP) {
 			fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "rb");
 			fuse_off = MX8MN_FUSE_NAND_SEARCH_CNT_OFFS;
 			fuse_bit = MX8MN_FUSE_NAND_SEARCH_CNT_BIT_OFFS;
@@ -986,6 +988,7 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 			plat_config_data->m_u32Arm_type != MX8Q &&
 			plat_config_data->m_u32Arm_type != MX8MQ &&
 			plat_config_data->m_u32Arm_type != MX8MN &&
+			plat_config_data->m_u32Arm_type != MX8MP &&
 			plat_config_data->m_u32Arm_type != MX6Q &&
 			plat_config_data->m_u32Arm_type != MX6DL &&
 			plat_config_data->m_u32Arm_type != MX6 &&
