@@ -44,6 +44,13 @@
 #define TYPICAL_NAND_READ_SIZE              2048
 
 #define BCB_MAGIC_OFFSET	12
+#define FCB_OFFSET	2 // I do not know the reason for the two bytes.
+
+#define BCB_READ_VIA_FILE_API	(1 << 0)
+#define BCB_READ_NCB			(1 << 1)
+#define BCB_READ_LDLB			(1 << 2)
+#define BCB_READ_DBBT			(1 << 3)
+#define BCB_READ_FCB			(1 << 4)
 
 #define MAXSEQLEN 183
 

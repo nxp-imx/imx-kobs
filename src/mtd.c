@@ -1480,28 +1480,12 @@ void *mtd_load_boot_structure(struct mtd_data *md, int chip, loff_t *ofsp, loff_
 	return md->buf;
 }
 
-/* single chip version */
-int mtd_load_all_boot_structures(struct mtd_data *md)
+static int mtd_load_nand_control_block(struct mtd_data *md, int stride, int search_area_sz)
 {
 	loff_t ofs, end;
-	int search_area_sz, stride;
-	int i, j, r, no, sz;
+	int i;
 	void *buf;
-	BadBlockTableNand_t *bbtn;
-	struct mtd_part *mp;
 	int chip;
-
-	stride = PAGES_PER_STRIDE * mtd_writesize(md);
-	search_area_sz = (1 << md->cfg.search_exponent) * stride;
-
-	/* make sure it fits */
-	if (search_area_sz * 6 > mtd_size(md)) {
-		fprintf(stderr, "mtd: search areas too large\n"
-			"\tsearch_area_sz * 6 > mtd_size\n"
-			"\t%#x * 6 > %#x",
-			search_area_sz, mtd_size(md));
-		return -1;
-	}
 
 	/* NCBs are NCB1, NCB2 */
 	for (i = 0; i < 2; i++) {
@@ -1575,6 +1559,16 @@ int mtd_load_all_boot_structures(struct mtd_data *md)
 	else
 		md->curr_ncb = &md->ncb[1];
 
+	return 0;
+}
+
+static int mtd_load_logical_drive_layout_block(struct mtd_data *md, int stride, int search_area_sz)
+{
+	loff_t ofs, end;
+	int i;
+	void *buf;
+	int chip;
+
 	/* LDLBs are right after the NCBs */
 	for (i = 0; i < 2; i++) {
 
@@ -1625,94 +1619,128 @@ int mtd_load_all_boot_structures(struct mtd_data *md)
 	else
 		md->curr_ldlb = &md->ldlb[1];
 
-	/* DBBTs are right after the LDLBs */
-	for (i = 0; i < 2; i++) {
+	return 0;
+}
 
-		if (multichip(md)) {
-			ofs = 2 * search_area_sz;
-			chip = i;
-		} else {
-			ofs = (4 + i) * search_area_sz;
+static int mtd_load_discoverable_bad_block_table(struct mtd_data *md, int stride, int search_area_sz)
+{
+	loff_t ofs, end;
+	int i, j, r, no, sz;
+	void *buf;
+	int chip;
+
+	if (plat_config_data->m_u32BCBBlocksFlags & (BCB_READ_FCB || BCB_READ_VIA_FILE_API)) {
+		loff_t dbbt_offset = md->fcb.FCB_Block.m_u32DBBTSearchAreaStartAddress * md->fcb.FCB_Block.m_u32PageDataSize;
+		const size_t dbbt_size = sizeof(md->dbbt50.DBBT_Block.v3) + offsetof(BCB_ROM_BootBlockStruct_t, DBBT_Block);
+		for (i = 0; i < 3; i++) {
+			r = mtd_read(md, 0, &md->dbbt50, dbbt_size, dbbt_offset);
+			if (r != dbbt_size)
+				return -1;
+			/* there is no checksum inside the dbbt structure */
+			if (md->dbbt50.m_u32FingerPrint == plat_config_data->m_u32DBBT_FingerPrint)
+				return 0;
+			dbbt_offset += md->fcb.FCB_Block.m_u32PageDataSize;
+		}
+		return -1;
+	} else {
+		/* DBBTs are right after the LDLBs */
+		for (i = 0; i < 2; i++) {
+
+			if (multichip(md)) {
+				ofs = 2 * search_area_sz;
+				chip = i;
+			} else {
+				ofs = (4 + i) * search_area_sz;
+				chip = 0;
+			}
+
+			end = ofs + search_area_sz;
+			md->curr_dbbt = NULL;
+			md->dbbt_ofs[i] = -1;
+
+			buf = mtd_load_boot_structure(md, chip, &ofs, end,
+					DBBT_FINGERPRINT1,
+					plat_config_data->m_u32DBBT_FingerPrint,
+					DBBT_FINGERPRINT3,
+					1, 0);
+			if (buf == NULL) {
+				fprintf(stderr, "mtd: DBBT%d not found\n", i);
+				continue;
+			}
+			md->curr_dbbt = buf;
+
+			if (md->flags & F_VERBOSE)
+				printf("mtd: Valid DBBT%d found @%d:0x%llx\n", i, chip, ofs);
+
+			md->dbbt[i] = *md->curr_dbbt;
+			md->curr_dbbt = NULL;
+			md->dbbt_ofs[i] = ofs;
+		}
+
+		if (md->dbbt_ofs[0] != -1 && md->dbbt_ofs[1] != -1) {
+			if (memcmp(&md->dbbt[0], &md->dbbt[1], sizeof(md->dbbt[0])) != 0)
+				printf("mtd: warning DBBT1 != DBBT2, using DBBT2\n");
+		}
+
+		if (md->dbbt_ofs[0] == -1 && md->dbbt_ofs[1] == -1) {
+			fprintf(stderr, "mtd: neither DBBT1 or DBBT2 found ERROR\n");
+			return -1;
+		}
+
+		/* prefer 0 */
+		if (md->dbbt_ofs[0] != -1)
+			md->curr_dbbt = &md->dbbt[0];
+		else
+			md->curr_dbbt = &md->dbbt[1];
+
+		/* no bad blocks what-so-ever */
+		if (md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND0 == 0 &&
+			md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND1 == 0)
+			return 0;
+
+		/* find DBBT to read from */
+		if (md->curr_dbbt == &md->dbbt[0]) {
+			ofs = md->dbbt_ofs[0];
 			chip = 0;
 		}
-
-		end = ofs + search_area_sz;
-		md->curr_dbbt = NULL;
-		md->dbbt_ofs[i] = -1;
-
-		buf = mtd_load_boot_structure(md, chip, &ofs, end,
-				DBBT_FINGERPRINT1,
-				plat_config_data->m_u32DBBT_FingerPrint,
-				DBBT_FINGERPRINT3,
-				1, 0);
-		if (buf == NULL) {
-			fprintf(stderr, "mtd: DBBT%d not found\n", i);
-			continue;
-		}
-		md->curr_dbbt = buf;
-
-		if (md->flags & F_VERBOSE)
-			printf("mtd: Valid DBBT%d found @%d:0x%llx\n", i, chip, ofs);
-
-		md->dbbt[i] = *md->curr_dbbt;
-		md->curr_dbbt = NULL;
-		md->dbbt_ofs[i] = ofs;
-	}
-
-	if (md->dbbt_ofs[0] != -1 && md->dbbt_ofs[1] != -1) {
-		if (memcmp(&md->dbbt[0], &md->dbbt[1], sizeof(md->dbbt[0])) != 0)
-			printf("mtd: warning DBBT1 != DBBT2, using DBBT2\n");
-	}
-
-	if (md->dbbt_ofs[0] == -1 && md->dbbt_ofs[1] == -1) {
-		fprintf(stderr, "mtd: neither DBBT1 or DBBT2 found ERROR\n");
-		return -1;
-	}
-
-	/* prefer 0 */
-	if (md->dbbt_ofs[0] != -1)
-		md->curr_dbbt = &md->dbbt[0];
-	else
-		md->curr_dbbt = &md->dbbt[1];
-
-	/* no bad blocks what-so-ever */
-	if (md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND0 == 0 &&
-	    md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND1 == 0)
-		return 0;
-
-	/* find DBBT to read from */
-	if (md->curr_dbbt == &md->dbbt[0]) {
-		ofs = md->dbbt_ofs[0];
-		chip = 0;
-	}
-	else {
-		ofs = md->dbbt_ofs[1];
-		if (multichip(md))
-			chip = 1;
-	}
-
-	/* BBTNs start here */
-	ofs += 4 * 2048;
-	for (j = 0; j < 2; j++, ofs += sz) {
-		if (j == 0)
-			sz = md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND0;
-		else
-			sz = md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND1;
-		if (sz == 0)
-			continue;
-		sz *= 2048;
-		md->bbtn[j] = malloc(sz);
-		if (md->bbtn[j] == NULL) {
-			printf("mtd: UNABLE to allocate %d bytes for BBTN%d\n", sz, j);
-			continue;
-		}
-		r = mtd_read(md, chip, md->bbtn[j], sz, ofs);
-		if (r != sz) {
-			printf("mtd: UNABLE to read %d bytes for BBTN%d\n", sz, j);
-			continue;
+		else {
+			ofs = md->dbbt_ofs[1];
+			if (multichip(md))
+				chip = 1;
 		}
 
+		/* BBTNs start here */
+		ofs += 4 * 2048;
+		for (j = 0; j < 2; j++, ofs += sz) {
+			if (j == 0)
+				sz = md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND0;
+			else
+				sz = md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND1;
+			if (sz == 0)
+				continue;
+			sz *= 2048;
+			md->bbtn[j] = malloc(sz);
+			if (md->bbtn[j] == NULL) {
+				printf("mtd: UNABLE to allocate %d bytes for BBTN%d\n", sz, j);
+				continue;
+			}
+			r = mtd_read(md, chip, md->bbtn[j], sz, ofs);
+			if (r != sz) {
+				printf("mtd: UNABLE to read %d bytes for BBTN%d\n", sz, j);
+				continue;
+			}
+
+		}
 	}
+
+	return 0;
+}
+
+void mtd_update_discoverable_bad_block_table(struct mtd_data *md)
+{
+	BadBlockTableNand_t *bbtn;
+	struct mtd_part *mp;
+	int i, j, no;
 
 	/* update bad block table */
 	for (j = 0; j < 2; j++) {
@@ -1743,6 +1771,69 @@ int mtd_load_all_boot_structures(struct mtd_data *md)
 				printf("mtd: '%s' bad block @ 0x%llx (DBBT)\n", mp->name, (loff_t)no * mtd_erasesize(md));
 		}
 	}
+}
+
+static int mtd_load_firmware_control_block(struct mtd_data *md)
+{
+	const size_t size_of_fcb = sizeof(md->fcb.FCB_Block) + offsetof(BCB_ROM_BootBlockStruct_t, FCB_Block);
+	int r = 0;
+	r = mtd_read(md, 0, &md->fcb, size_of_fcb, FCB_OFFSET);
+	if (r != size_of_fcb)
+		return -1;
+	if (md->fcb.m_u32FingerPrint != FCB_FINGERPRINT)
+		return -1;
+	return 0;
+}
+
+/* single chip version */
+int mtd_load_all_boot_structures(struct mtd_data *md)
+{
+	loff_t ofs, end;
+	int search_area_sz, stride;
+	int i, j, r, no, sz;
+	void *buf;
+	BadBlockTableNand_t *bbtn;
+	struct mtd_part *mp;
+	int chip;
+
+	stride = PAGES_PER_STRIDE * mtd_writesize(md);
+	search_area_sz = (1 << md->cfg.search_exponent) * stride;
+
+	/* make sure it fits */
+	if (search_area_sz * 6 > mtd_size(md)) {
+		fprintf(stderr, "mtd: search areas too large\n"
+			"\tsearch_area_sz * 6 > mtd_size\n"
+			"\t%#x * 6 > %#x",
+			search_area_sz, mtd_size(md));
+		return -1;
+	}
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_NCB) {
+		r = mtd_load_nand_control_block(md, stride, search_area_sz);
+		if (r)
+			return r;
+	}
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_LDLB) {
+		r = mtd_load_logical_drive_layout_block(md, stride, search_area_sz);
+		if (r)
+			return r;
+	}
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_FCB) {
+		r = mtd_load_firmware_control_block(md);
+		if (r)
+			return r;
+	}
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_DBBT) {
+		r = mtd_load_discoverable_bad_block_table(md, stride, search_area_sz);
+		if (r)
+			return r;
+	}
+
+	mtd_update_discoverable_bad_block_table(md);
+
 	return 0;
 }
 

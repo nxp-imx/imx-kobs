@@ -38,6 +38,7 @@ static platform_config mx23_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 20,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v0_rom_mtd_init,
 	.rom_mtd_commit_structures = v0_rom_mtd_commit_structures,
 };
@@ -52,6 +53,7 @@ static platform_config mx28_boot_config = {
 	.m_u32UseSinglePageStride = 1,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 20,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v1_rom_mtd_init,
 	.rom_mtd_commit_structures = v1_rom_mtd_commit_structures,
 };
@@ -66,6 +68,7 @@ static platform_config mx53to1_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2_V2,
 	.m_u32MaxEccStrength = 40,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v2_rom_mtd_init,
 	.rom_mtd_commit_structures = v2_rom_mtd_commit_structures,
 };
@@ -80,6 +83,7 @@ static platform_config mx53to2_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2_V2,
 	.m_u32MaxEccStrength = 40,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v2_rom_mtd_init,
 	.rom_mtd_commit_structures = v2_rom_mtd_commit_structures,
 };
@@ -94,6 +98,7 @@ static platform_config mx50_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 40,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v4_rom_mtd_commit_structures,
 };
@@ -107,6 +112,7 @@ static platform_config mx6q_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 40,
+	.m_u32BCBBlocksFlags = (BCB_READ_FCB | BCB_READ_VIA_FILE_API),
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v4_rom_mtd_commit_structures,
 };
@@ -120,6 +126,7 @@ static platform_config mx6sx_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 62,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v4_rom_mtd_commit_structures,
 };
@@ -133,6 +140,7 @@ static platform_config mx6sx_to_1_2_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 62,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v5_rom_mtd_commit_structures,
 };
@@ -146,6 +154,7 @@ static platform_config mx7d_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 62,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v5_rom_mtd_commit_structures,
 };
@@ -159,6 +168,7 @@ static platform_config mx6ul_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 40,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v6_rom_mtd_commit_structures,
 };
@@ -172,6 +182,7 @@ static platform_config mx8mq_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 62,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v7_rom_mtd_commit_structures,
 };
@@ -185,6 +196,7 @@ static platform_config mx8q_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 62,
+	.m_u32BCBBlocksFlags = (BCB_READ_NCB | BCB_READ_LDLB),
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v5_rom_mtd_commit_structures,
 };
