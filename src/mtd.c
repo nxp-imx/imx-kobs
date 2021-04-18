@@ -933,7 +933,7 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 								md->cfg.search_exponent = 1;
 						}
 					}
-				vp(md, "mtd: search_exponent was set by fuse as %d\n"
+				vp(md, "mtd: search_exponent was set as %d\n"
 						, md->cfg.search_exponent);
 				}
 			}
