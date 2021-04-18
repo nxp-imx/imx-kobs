@@ -50,7 +50,8 @@
 #define BCB_READ_NCB			(1 << 1)
 #define BCB_READ_LDLB			(1 << 2)
 #define BCB_READ_DBBT			(1 << 3)
-#define BCB_READ_FCB			(1 << 4)
+#define BCB_READ_DBBT_FROM_FCB	(1 << 4)
+#define BCB_READ_FCB			(1 << 5)
 
 #define MAXSEQLEN 183
 

@@ -112,7 +112,7 @@ static platform_config mx6q_boot_config = {
 	.m_u32UseSinglePageStride = 0,
 	.m_u32DBBT_FingerPrint = DBBT_FINGERPRINT2,
 	.m_u32MaxEccStrength = 40,
-	.m_u32BCBBlocksFlags = (BCB_READ_FCB | BCB_READ_VIA_FILE_API),
+	.m_u32BCBBlocksFlags = (BCB_READ_FCB | BCB_READ_DBBT | BCB_READ_DBBT_FROM_FCB | BCB_READ_VIA_FILE_API),
 	.rom_mtd_init = v4_rom_mtd_init,
 	.rom_mtd_commit_structures = v4_rom_mtd_commit_structures,
 };
