@@ -50,6 +50,10 @@
 #define IMX8QM_SPL_OFF		0x19c00
 #define IMX8QM_FIT_OFF		0x57c00
 
+/* define 6QDL FUSE value location */
+#define MX6QDL_FUSE_NAND_SEARCH_CNT_OFFS 0x50 // this offset is relative to 0x400, hardcoded into the imx-ocotp driver.
+#define MX6QDL_FUSE_NAND_SEARCH_CNT_BIT_OFFS (3+8)
+#define MX6QDL_FUSE_NAND_SEARCH_CNT_MASK 3
 /* define 8Q FUSE value location */
 #define MX8Q_FUSE_NAND_SEARCH_CNT_OFFS 0x700
 #define MX8Q_FUSE_NAND_SEARCH_CNT_BIT_OFFS 6
@@ -826,7 +830,7 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	int i, k, j, r, no;
 	loff_t ofs;
 	FILE *fp;
-	char tmp;
+	uint32_t word;
 	int fuse_off, fuse_bit, fuse_mask;
 
 	md = malloc(sizeof(*md));
@@ -871,7 +875,8 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	 */
 	if (plat_config_data->m_u32Arm_type == MX8Q
 	    || plat_config_data->m_u32Arm_type == MX8MN
-	    || plat_config_data->m_u32Arm_type == MX8MP) {
+	    || plat_config_data->m_u32Arm_type == MX6Q
+	    || plat_config_data->m_u32Arm_type == MX6DL) {
 
 		md->cfg.search_exponent = 1;
 		vp(md, "mtd: search_exponent set to 1 by default\n");
@@ -890,25 +895,43 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 			fuse_bit = MX8MN_FUSE_NAND_SEARCH_CNT_BIT_OFFS;
 			fuse_mask = MX8MN_FUSE_NAND_SEARCH_CNT_MASK;
 		}
+		if (plat_config_data->m_u32Arm_type == MX6DL ||
+		    plat_config_data->m_u32Arm_type == MX6Q) {
+			fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "rb");
+			fuse_off = MX6QDL_FUSE_NAND_SEARCH_CNT_OFFS;
+			fuse_bit = MX6QDL_FUSE_NAND_SEARCH_CNT_BIT_OFFS;
+			fuse_mask = MX6QDL_FUSE_NAND_SEARCH_CNT_MASK;
+		}
 		if (fp) {
 			/* move to the nand_boot_search_count offset */
 			if (!fseek(fp, fuse_off, SEEK_SET)) {
 				/* read out the nand_boot_search_count from fuse */
-				if (fread(&tmp, 1, 1, fp) == 1) {
-					vp(md, "read back from fuse: %x\n", tmp);
-					switch ((tmp >> fuse_bit) && fuse_mask) {
-						case 0:
-						case 1:
-							md->cfg.search_exponent = 1;
-							break;
-						case 2:
-							md->cfg.search_exponent = 2;
-							break;
-						case 3:
-							md->cfg.search_exponent = 3;
-							break;
-						default:
-							md->cfg.search_exponent = 1;
+				/* The kernel nvmem driver `imx-ocotp` has a bug, which was fixed by
+				 * 3311bf18467272388039922a5e29c4925b291f73, that will make it
+				 * ignore reads that are shorter than 4 bytes.
+				 */
+				if (fread(&word, sizeof(word), 1, fp) == 1) {
+					// see linux kernel's imx-ocotp.c:imx_ocotp_read
+					if (word == 0xBADABADA) {
+						vp(md, "mtd: read back a \"read locked\" register. Got invalid value: 0x%x\n", word);
+						md->cfg.search_exponent = 1;
+					} else {
+						word &= 0x000f;
+						vp(md, "mtd: read back from fuse: %x\n", word);
+						switch ((word >> fuse_bit) && fuse_mask) {
+							case 0:
+							case 1:
+								md->cfg.search_exponent = 1;
+								break;
+							case 2:
+								md->cfg.search_exponent = 2;
+								break;
+							case 3:
+								md->cfg.search_exponent = 3;
+								break;
+							default:
+								md->cfg.search_exponent = 1;
+						}
 					}
 				vp(md, "mtd: search_exponent was set by fuse as %d\n"
 						, md->cfg.search_exponent);
@@ -1632,13 +1655,20 @@ static int mtd_load_discoverable_bad_block_table(struct mtd_data *md, int stride
 	if (plat_config_data->m_u32BCBBlocksFlags & (BCB_READ_FCB || BCB_READ_VIA_FILE_API || BCB_READ_DBBT_FROM_FCB)) {
 		loff_t dbbt_offset = md->fcb.FCB_Block.m_u32DBBTSearchAreaStartAddress * md->fcb.FCB_Block.m_u32PageDataSize;
 		const size_t dbbt_size = sizeof(md->dbbt50.DBBT_Block.v3) + offsetof(BCB_ROM_BootBlockStruct_t, DBBT_Block);
+		/* The search limit _should_ be read from an OTP (fuse) */
 		for (i = 0; i < 3; i++) {
 			r = mtd_read(md, 0, &md->dbbt50, dbbt_size, dbbt_offset);
 			if (r != dbbt_size)
-				return -1;
+				continue;
 			/* there is no checksum inside the dbbt structure */
-			if (md->dbbt50.m_u32FingerPrint == plat_config_data->m_u32DBBT_FingerPrint)
+			if (md->dbbt50.m_u32FingerPrint == plat_config_data->m_u32DBBT_FingerPrint) {
+				/* i.MX 6 DQRM 8.5.2.4 - DBBT Structure */
+				uint32_t *bad_block_number_ptr = &md->dbbt50.DBBT_Block.v3 + (4 * md->fcb.FCB_Block.m_u32PageDataSize) + 8;
+				for (j = 0; j < md->dbbt50.DBBT_Block.v3.m_u32DBBTNumOfPages; j++) {
+					md->bbtn[0]->u32BadBlock[bad_block_number_ptr[i]] = 1;
+				}
 				return 0;
+			}
 			dbbt_offset += md->fcb.FCB_Block.m_u32PageDataSize;
 		}
 		return -1;

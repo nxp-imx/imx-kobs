@@ -209,6 +209,8 @@ int discover_boot_rom_version(void)
 	char         line_buffer[100];
 	static char  *banner = "Revision";
 	static char  *banner_hw = "Hardware";
+	static char  *plat_imx6q = "i.MX6Q";
+	static char  *plat_imx6dl = "i.MX6DL";
 	static char  *plat_imx6sx = "i.MX6SX";
 	static char  *plat_imx6ul = "i.MX6UL";
 	static char  *plat_imx6ull = "i.MX6ULL";
@@ -346,6 +348,13 @@ int discover_boot_rom_version(void)
 				if (!strncmp(line_buffer, plat_imx6ul, strlen(plat_imx6ul)) ||
 					!strncmp(line_buffer, plat_imx6ull, strlen(plat_imx6ull)))
 					plat_config_data = &mx6ul_boot_config;
+
+				/* system_rev is not specific enough */
+				if (!strncmp(line_buffer, plat_imx6dl, strlen(plat_imx6dl)))
+					plat_config_data->m_u32Arm_type = MX6DL;
+				else if (!strncmp(line_buffer, plat_imx6q, strlen(plat_imx6q)))
+					plat_config_data->m_u32Arm_type = MX6Q;
+
 				break;
 
 			case MX7:
@@ -359,7 +368,8 @@ int discover_boot_rom_version(void)
 
 			fclose(cpuinfo);
 			if (plat_config_data) {
-				plat_config_data->m_u32Arm_type = system_rev;
+				if (!plat_config_data->m_u32Arm_type)
+					plat_config_data->m_u32Arm_type = system_rev;
 				return 0;
 			}
 			return -1;
