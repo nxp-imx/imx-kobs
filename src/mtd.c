@@ -918,7 +918,7 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 					} else {
 						word &= 0x000f;
 						vp(md, "mtd: read back from fuse: %x\n", word);
-						switch ((word >> fuse_bit) && fuse_mask) {
+						switch ((word >> fuse_bit) & fuse_mask) {
 							case 0:
 							case 1:
 								md->cfg.search_exponent = 1;
