@@ -1655,8 +1655,7 @@ static int mtd_load_discoverable_bad_block_table(struct mtd_data *md, int stride
 	if (plat_config_data->m_u32BCBBlocksFlags & (BCB_READ_FCB || BCB_READ_VIA_FILE_API || BCB_READ_DBBT_FROM_FCB)) {
 		loff_t dbbt_offset = md->fcb.FCB_Block.m_u32DBBTSearchAreaStartAddress * md->fcb.FCB_Block.m_u32PageDataSize;
 		const size_t dbbt_size = sizeof(md->dbbt50.DBBT_Block.v3) + offsetof(BCB_ROM_BootBlockStruct_t, DBBT_Block);
-		/* The search limit _should_ be read from an OTP (fuse) */
-		for (i = 0; i < 3; i++) {
+		for (i = 0; i < (1 << md->cfg.search_exponent); i++) {
 			r = mtd_read(md, 0, &md->dbbt50, dbbt_size, dbbt_offset);
 			if (r != dbbt_size)
 				continue;
