@@ -3516,7 +3516,7 @@ int v0_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 	return 0;
 }
 
-static void dbbt_checksum(struct mtd_data *md, BCB_ROM_BootBlockStruct_t *dbbt)
+uint32_t checksum(const uint8_t *ptr, size_t size)
 {
 	uint32_t  accumulator = 0;
 	uint8_t   *p, *q;
@@ -3525,15 +3525,20 @@ static void dbbt_checksum(struct mtd_data *md, BCB_ROM_BootBlockStruct_t *dbbt)
 	 * The checksum should do 508 bytes. But if the rest of the buffer is
 	 * zero. We can only add the non-zero data for the checksum.
 	 */
-	p = ((uint8_t *) dbbt) + 4;
-	q = (uint8_t *) (dbbt + 1);
-	vp(md, "DBBT checksum length : %d\n", q - p);
+	p = ((uint8_t *) boot_block_structure) + 4;
+	q = (uint8_t *) (boot_block_structure + 1);
+	vp(md, "checksum length : %d\n", q - p);
 
 	for (; p < q; p++)
 		accumulator += *p;
 	accumulator ^= 0xffffffff;
 
-	dbbt->m_u32Checksum = accumulator;
+	return accumulator;
+}
+
+static void dbbt_checksum(struct mtd_data *md, BCB_ROM_BootBlockStruct_t *boot_block_structure)
+{
+	boot_block_structure->m_u32Checksum = checksum(md, boot_block_structure);
 }
 
 static void write_dbbt(struct mtd_data *md, int dbbt_num)

@@ -323,6 +323,8 @@ void mtd_parse_args(struct mtd_config *cfg, int argc, char **argv);
 void mtd_parse_kobs(struct mtd_config *cfg, const char *name, int verbose);
 void mtd_cfg_dump(struct mtd_config *cfg);
 
+uint32_t checksum(const uint8_t *ptr, size_t size);
+
 int ncb_get_version(void *ncb_candidate, NCB_BootBlockStruct_t **result);
 int ncb_encrypt(NCB_BootBlockStruct_t *ncb, void *target, size_t size, int version);
 int fcb_encrypt(BCB_ROM_BootBlockStruct_t *fcb, void *target, size_t size, int version);
