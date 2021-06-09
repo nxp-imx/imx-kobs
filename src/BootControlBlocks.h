@@ -349,6 +349,10 @@ typedef struct {
 		struct fcb_block FCB_Block;
 		union {
 			struct {
+				uint32_t	m_u32res;
+				uint32_t	m_u32DBBTNumOfPages;
+			};
+			struct {
 				uint32_t	m_u32NumberBB;		//!< # Bad Blocks stored in this table for NAND0.
 				uint32_t	m_u32Number2KPagesBB;	//!< Bad Blocks for NAND0 consume this # of 2K pages.
 			} v2;

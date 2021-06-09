@@ -1647,31 +1647,43 @@ static int mtd_load_logical_drive_layout_block(struct mtd_data *md, int stride, 
 
 static int mtd_load_discoverable_bad_block_table(struct mtd_data *md, int stride, int search_area_sz)
 {
+	const loff_t dbbt_offset = md->fcb.FCB_Block.m_u32DBBTSearchAreaStartAddress * md->fcb.FCB_Block.m_u32PageDataSize;
+	const off_t bad_block_index_relative_offset = offsetof(BCB_ROM_BootBlockStruct_t, DBBT_Block);
+	const loff_t bad_block_index_offset = dbbt_offset + bad_block_index_relative_offset;
 	loff_t ofs, end;
 	int i, j, r, no, sz;
 	void *buf;
 	int chip;
 
 	if (plat_config_data->m_u32BCBBlocksFlags & (BCB_READ_FCB || BCB_READ_VIA_FILE_API || BCB_READ_DBBT_FROM_FCB)) {
-		loff_t dbbt_offset = md->fcb.FCB_Block.m_u32DBBTSearchAreaStartAddress * md->fcb.FCB_Block.m_u32PageDataSize;
-		const size_t dbbt_size = sizeof(md->dbbt50.DBBT_Block.v3) + offsetof(BCB_ROM_BootBlockStruct_t, DBBT_Block);
+		/* Read the DBBT in two steps:
+		   1. Read the checksum, fingerprint, version and size of the dynamic part (=20 bytes).
+		   2. Read the dynamic part, but ignore Tables sizes >1 and read right into md->bttn[NAND_CHIP].
+		*/
+		const size_t dbbt_size = 20;
 		if (plat_config_data->m_u32UseMultiBootArea) {
 			fprintf(stderr, "mtd: warning examining only first FCB.\n");
 		}
-		for (i = 0; i < (1 << md->cfg.search_exponent); i++) {
-			r = mtd_read(md, 0, &md->dbbt50, dbbt_size, dbbt_offset);
+		for (i = 0; (i * md->cfg.stride_size_in_bytes) < md->cfg.search_area_size_in_bytes; i++) {
+			r = mtd_read(md, 0, &md->dbbt50, dbbt_size, dbbt_offset + (i * md->cfg.stride_size_in_bytes));
 			if (r != dbbt_size)
 				continue;
 			/* there is no checksum inside the dbbt structure */
-			if (md->dbbt50.m_u32FingerPrint == plat_config_data->m_u32DBBT_FingerPrint) {
-				/* i.MX 6 DQRM 8.5.2.4 - DBBT Structure */
-				uint32_t *bad_block_number_ptr = &md->dbbt50.DBBT_Block.v3 + (4 * md->fcb.FCB_Block.m_u32PageDataSize) + 8;
-				for (j = 0; j < md->dbbt50.DBBT_Block.v3.m_u32DBBTNumOfPages; j++) {
-					md->bbtn[0]->u32BadBlock[bad_block_number_ptr[i]] = 1;
-				}
-				return 0;
-			}
-			dbbt_offset += md->fcb.FCB_Block.m_u32PageDataSize;
+			if (md->dbbt50.m_u32FingerPrint != plat_config_data->m_u32DBBT_FingerPrint)
+				continue;
+			/* i.MX 6 DQRM 8.5.2.4 - DBBT Structure
+			The following would be the _correct_ thing to do:
+				1. read the table size
+				2. allocate the necessary memory to read the entire table
+			However, every tool (imx-kobs, barebox, uboot) seems to go with the assumption,
+			that there is at most a single page (4byte/entry) worth of bad blocks entries (=512).
+			const size_t bad_block_table_in_bytes = md->dbbt50.DBBT_Block.v3.m_u32DBBTNumOfPages * mtd_writesize(md);
+			*/
+			md->bbtn[0] = malloc(sizeof(*md->bbtn[0]));
+			r = mtd_read(md, 0, md->bbtn[0], sizeof(*md->bbtn[0]), bad_block_index_offset);
+			if (r != TYPICAL_NAND_READ_SIZE)
+				return -1;
+			return 0;
 		}
 		return -1;
 	} else {
@@ -1807,13 +1819,36 @@ void mtd_update_discoverable_bad_block_table(struct mtd_data *md)
 
 static int mtd_load_firmware_control_block(struct mtd_data *md)
 {
-	const size_t size_of_fcb = sizeof(md->fcb.FCB_Block) + offsetof(BCB_ROM_BootBlockStruct_t, FCB_Block);
-	int r = 0;
-	r = mtd_read(md, 0, &md->fcb, size_of_fcb, FCB_OFFSET);
-	if (r != size_of_fcb)
+	// the checksum does _not_ include the checksum itself, so add the offset.
+	size_t size_of_fcb;
+	const uint8_t *checksum_ptr;
+	uint32_t calculated_checksum;
+	int i, r = 0;
+	switch (plat_config_data->m_u32Arm_type) {
+		case MX6DL:
+		case MX6Q:
+			// the reference manual specifies a smaller FCB
+			size_of_fcb = offsetof(struct fcb_block, m_u32RandomizerEnable)
+			+ offsetof(BCB_ROM_BootBlockStruct_t, FCB_Block);
+			break;
+		default:
+			size_of_fcb = sizeof(md->fcb.FCB_Block) + offsetof(BCB_ROM_BootBlockStruct_t, FCB_Block);
+	}
+	for (i = 0; (i * md->cfg.stride_size_in_bytes) < md->cfg.search_area_size_in_bytes; i++) {
+		r = mtd_read(md, 0, &md->fcb, size_of_fcb, FCB_OFFSET + (i * md->cfg.stride_size_in_bytes));
+		if (r != size_of_fcb)
+			return -1;
+		if (md->fcb.m_u32FingerPrint != FCB_FINGERPRINT)
+			return -1;
+		checksum_ptr = &md->fcb.m_u32FingerPrint;
+		calculated_checksum = checksum(checksum_ptr, size_of_fcb - offsetof(BCB_ROM_BootBlockStruct_t, m_u32FingerPrint));
+		if (md->fcb.m_u32Checksum == calculated_checksum)
+			break;
+	}
+	if (md->fcb.m_u32Checksum != calculated_checksum) {
+		fprintf(stderr, "mtd: could not find intact FCB.\n");
 		return -1;
-	if (md->fcb.m_u32FingerPrint != FCB_FINGERPRINT)
-		return -1;
+	}
 	return 0;
 }
 
@@ -3519,26 +3554,19 @@ int v0_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 uint32_t checksum(const uint8_t *ptr, size_t size)
 {
 	uint32_t  accumulator = 0;
-	uint8_t   *p, *q;
+	size_t i;
 
-	/*
-	 * The checksum should do 508 bytes. But if the rest of the buffer is
-	 * zero. We can only add the non-zero data for the checksum.
-	 */
-	p = ((uint8_t *) boot_block_structure) + 4;
-	q = (uint8_t *) (boot_block_structure + 1);
-	vp(md, "checksum length : %d\n", q - p);
+	printf("mtd: checksum start: %p; length : %d\n", ptr, size);
 
-	for (; p < q; p++)
-		accumulator += *p;
-	accumulator ^= 0xffffffff;
+	for (i = 0; i < size; i++)
+		accumulator += ptr[i];
 
-	return accumulator;
+	return ~accumulator;
 }
 
 static void dbbt_checksum(struct mtd_data *md, BCB_ROM_BootBlockStruct_t *boot_block_structure)
 {
-	boot_block_structure->m_u32Checksum = checksum(md, boot_block_structure);
+	boot_block_structure->m_u32Checksum = checksum((uint8_t*)boot_block_structure + offsetof(BCB_ROM_BootBlockStruct_t, m_u32Checksum), sizeof(md->dbbt50));
 }
 
 static void write_dbbt(struct mtd_data *md, int dbbt_num)

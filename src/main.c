@@ -263,20 +263,35 @@ int extract_main(int argc, char **argv)
 	}
 
 	chip = 0;
-	startpage = image == 0 ?
-		md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector :
-		md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2;
-	size =  image == 0 ?
-		md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware :
-		md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware2 ;
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_DBBT_FROM_FCB) {
+		if (image != 0) {
+			fprintf(stderr, "Multichip NAND behavior not supported.\n");
+			exit(5);
+		}
+		startpage = md->fcb.FCB_Block.m_u32Firmware1_startingPage;
+		size = md->fcb.FCB_Block.m_u32PagesInFirmware1;
+	} else {
+		startpage = image == 0 ?
+			md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector :
+			md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2;
+		size =  image == 0 ?
+			md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware :
+			md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware2;
+	}
 	if (md->flags & F_MULTICHIP)
 		chip = image;
 
 	if (flags & F_VERBOSE)
 		printf("startpage=%u, size=%u\n", startpage, size);
 
-	start = startpage * 2048;
-	size = size * 2048;
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_FCB) {
+		start = startpage * md->fcb.FCB_Block.m_u32PageDataSize;
+		size = size * md->fcb.FCB_Block.m_u32PageDataSize;
+	} else {
+		start = startpage * 2048;
+		size = size * 2048;
+	}
 	while (size > 0) {
 
 		/* skip bad blocks */
@@ -292,7 +307,7 @@ int extract_main(int argc, char **argv)
 			exit(5);
 		}
 		r = fwrite(buf, sizeof(buf), 1, outfp);
-		if (sizeof(buf) != 1)
+		if (r != 1)
 			fprintf(stderr, "Write to file failed\n");
 
 		start += sizeof(buf);
