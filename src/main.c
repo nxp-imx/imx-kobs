@@ -179,7 +179,7 @@ int extract_main(int argc, char **argv)
 	char buf[512];
 	struct mtd_config cfg;
 	uint8_t key[16];
-	long end_of_file, pos;
+	long end_of_file = 0, pos;
 	char ascii[20 * 2 + 1];
 	FILE *tfp;
 	int readn, chunk, curr;

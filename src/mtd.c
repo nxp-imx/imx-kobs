@@ -329,7 +329,7 @@ int mtd_read_page(struct mtd_data *md, int chip, loff_t ofs, int ecc)
 		struct nfc_geometry *nfc_geo = &md->nfc_geometry;
 		int eccbits = nfc_geo->ecc_strength * nfc_geo->gf_len;
 		int chunksize = nfc_geo->ecc_chunkn_size_in_bytes;
-		int dst_bit_off;
+		int dst_bit_off = 0;
 		int oob_bit_off;
 		int oob_bit_left;
 		int ecc_chunk_count;
@@ -445,7 +445,7 @@ int mtd_write_page(struct mtd_data *md, int chip, loff_t ofs, int ecc)
 		struct nfc_geometry *nfc_geo = &md->nfc_geometry;
 		int eccbits = nfc_geo->ecc_strength * nfc_geo->gf_len;
 		int chunksize = nfc_geo->ecc_chunkn_size_in_bytes;
-		int src_bit_off;
+		int src_bit_off = 0;
 		int oob_bit_off;
 		int oob_bit_left;
 		int ecc_chunk_count;
