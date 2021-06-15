@@ -425,26 +425,28 @@ static int perform_bootstream_update(struct mtd_data *md, FILE *infp, int image_
 		if ((image_mask & (1 << i)) == 0)
 			continue;
 
-		/* first verify it fits */
-		if (i == 0) {
-			start = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector  * 2048;
-			end = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2 * 2048;
-		} else {
-			start = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2 * 2048;
-			end = mtd_size(md);
-		}
-		avail = end - start;
+		if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_LDLB) {
+			/* first verify it fits */
+			if (i == 0) {
+				start = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector  * 2048;
+				end = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2 * 2048;
+			} else {
+				start = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2 * 2048;
+				end = mtd_size(md);
+			}
+			avail = end - start;
 
-		if (avail <= size) {
-			fprintf(stderr, "image #d does not fit (avail = %u, size = %u)\n", avail, size);
-			exit(5);
-		}
+			if (avail <= size) {
+				fprintf(stderr, "image #d does not fit (avail = %u, size = %u)\n", avail, size);
+				exit(5);
+			}
 
-		/* now update size */
-		if (i == 0)
-			md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware = (size + 2047) / 2048;
-		else
-			md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware2 = (size + 2047) / 2048;
+			/* now update size */
+			if (i == 0)
+				md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware = (size + 2047) / 2048;
+			else
+				md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware2 = (size + 2047) / 2048;
+		}
 		update |= UPDATE_BS(i);
 	}
 
