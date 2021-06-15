@@ -3354,110 +3354,117 @@ int write_extra_boot_stream(struct mtd_data *md, FILE *fp)
 	return 0;
 }
 
-
-int write_boot_stream(struct mtd_data *md, FILE *fp)
+int _write_boot_stream(struct mtd_data *md, FILE *fp, int slot)
 {
 	int startpage, start, size;
 	loff_t ofs, end;
-	int i, r, chunk;
+	int i = slot, r, chunk;
 	int chip = 0;
 	struct fcb_block *fcb = &md->fcb.FCB_Block;
 
-	vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
-	for (i = 0; i < 2; i++) {
-		if (fp == NULL)
-			continue;
-
-		if (i == 0) {
-			startpage = fcb->m_u32Firmware1_startingPage;
-			size      = fcb->m_u32PagesInFirmware1;
-			if (fcb->m_u32Firmware2_startingPage > fcb->m_u32Firmware1_startingPage) {
-				end   = fcb->m_u32Firmware2_startingPage;
-			} else {
-				end   = mtd_size(md) / mtd_writesize(md);
-			}
+	if (i == 0) {
+		startpage = fcb->m_u32Firmware1_startingPage;
+		size      = fcb->m_u32PagesInFirmware1;
+		if (fcb->m_u32Firmware2_startingPage > fcb->m_u32Firmware1_startingPage) {
+			end   = fcb->m_u32Firmware2_startingPage;
 		} else {
-			startpage = fcb->m_u32Firmware2_startingPage;
-			size      = fcb->m_u32PagesInFirmware2;
-			if (fcb->m_u32Firmware1_startingPage > fcb->m_u32Firmware2_startingPage) {
-				end   = fcb->m_u32Firmware1_startingPage;
-			} else {
-				end   = mtd_size(md) / mtd_writesize(md);
-			}
+			end   = mtd_size(md) / mtd_writesize(md);
+		}
+	} else {
+		startpage = fcb->m_u32Firmware2_startingPage;
+		size      = fcb->m_u32PagesInFirmware2;
+		if (fcb->m_u32Firmware1_startingPage > fcb->m_u32Firmware2_startingPage) {
+			end   = fcb->m_u32Firmware1_startingPage;
+		} else {
+			end   = mtd_size(md) / mtd_writesize(md);
+		}
+	}
+
+	start = startpage * mtd_writesize(md);
+	size  = size      * mtd_writesize(md);
+	end   = end       * mtd_writesize(md);
+
+	vp(md, "mtd: Writting %s: #%d @%d: 0x%08x - 0x%08x\n",
+		(char*)md->private, i, chip, start, start + size);
+
+	/* Begin to write the image. */
+	rewind(fp);
+
+	ofs = start;
+	while (ofs < end && size > 0) {
+		while (mtd_isbad(md, chip, ofs) == 1) {
+			vp(md, "mtd: Skipping bad block at 0x%llx\n", ofs);
+			ofs += mtd_erasesize(md);
 		}
 
-		start = startpage * mtd_writesize(md);
-		size  = size      * mtd_writesize(md);
-		end   = end       * mtd_writesize(md);
-
-		vp(md, "mtd: Writting %s: #%d @%d: 0x%08x - 0x%08x\n",
-			(char*)md->private, i, chip, start, start + size);
-
-		/* Begin to write the image. */
-		rewind(fp);
-
-		ofs = start;
-		while (ofs < end && size > 0) {
-			while (mtd_isbad(md, chip, ofs) == 1) {
-				vp(md, "mtd: Skipping bad block at 0x%llx\n", ofs);
-				ofs += mtd_erasesize(md);
-			}
-
-			chunk = size;
-
-			/*
-			 * Check if we've entered a new block and, if so, erase
-			 * it before beginning to write it.
-			 */
-			if ((ofs % mtd_erasesize(md)) == 0) {
-				r = mtd_erase_block(md, chip, ofs);
-				if (r < 0) {
-					fprintf(stderr, "mtd: Failed to erase block"
-						       "@0x%llx\n", ofs);
-					ofs += mtd_erasesize(md);
-					continue;
-				}
-			}
-
-			if (chunk > mtd_writesize(md))
-				chunk = mtd_writesize(md);
-
-			r = fread(md->buf, 1, chunk, fp);
-			if (r < 0) {
-				fprintf(stderr, "mtd: Failed %d (fread %d)\n", r, chunk);
-				return -1;
-			}
-			if (r < chunk) {
-				memset(md->buf + r, 0, chunk - r);
-				vp(md, "mtd: The last page is not full : %d\n", r);
-			}
-
-			/* write page */
-			r = mtd_write_page(md, chip, ofs, 1);
-			if (r != mtd_writesize(md))
-				fprintf(stderr, "mtd: Failed to write BS @0x%llx (%d)\n",
-					ofs, r);
-
-			ofs += mtd_writesize(md);
-			size -= chunk;
-		}
+		chunk = size;
 
 		/*
-		 * Write one safe guard page:
-		 *  The Image_len of uboot is bigger then the real size of
-		 *  uboot by 1K. The ROM will get all 0xff error in this case.
-		 *  So we write one more page for safe guard.
-		 */
-		memset(md->buf, 0, mtd_writesize(md));
-		r = mtd_write_page(md, chip, ofs, 1);
-		if (r != mtd_writesize(md))
-			fprintf(stderr, "Failed to write safe page\n");
-		vp(md, "mtd: We write one page for save guard. *\n");
+			* Check if we've entered a new block and, if so, erase
+			* it before beginning to write it.
+			*/
+		if ((ofs % mtd_erasesize(md)) == 0) {
+			r = mtd_erase_block(md, chip, ofs);
+			if (r < 0) {
+				fprintf(stderr, "mtd: Failed to erase block"
+							"@0x%llx\n", ofs);
+				ofs += mtd_erasesize(md);
+				continue;
+			}
+		}
 
-		if (ofs >= end) {
-			fprintf(stderr, "mtd: Failed to write BS#%d\n", i);
+		if (chunk > mtd_writesize(md))
+			chunk = mtd_writesize(md);
+
+		r = fread(md->buf, 1, chunk, fp);
+		if (r < 0) {
+			fprintf(stderr, "mtd: Failed %d (fread %d)\n", r, chunk);
 			return -1;
 		}
+		if (r < chunk) {
+			memset(md->buf + r, 0, chunk - r);
+			vp(md, "mtd: The last page is not full : %d\n", r);
+		}
+
+		/* write page */
+		r = mtd_write_page(md, chip, ofs, 1);
+		if (r != mtd_writesize(md))
+			fprintf(stderr, "mtd: Failed to write BS @0x%llx (%d)\n",
+				ofs, r);
+
+		ofs += mtd_writesize(md);
+		size -= chunk;
+	}
+
+	/*
+		* Write one safe guard page:
+		*  The Image_len of uboot is bigger then the real size of
+		*  uboot by 1K. The ROM will get all 0xff error in this case.
+		*  So we write one more page for safe guard.
+		*/
+	memset(md->buf, 0, mtd_writesize(md));
+	r = mtd_write_page(md, chip, ofs, 1);
+	if (r != mtd_writesize(md))
+		fprintf(stderr, "Failed to write safe page\n");
+	vp(md, "mtd: We write one page for save guard. *\n");
+
+	if (ofs >= end) {
+		fprintf(stderr, "mtd: Failed to write BS#%d\n", i);
+		return -1;
+	}
+
+	return 0;
+}
+
+int write_boot_stream(struct mtd_data *md, FILE *fp)
+{
+	int i, r;
+
+	vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+	for (i = 0; i < 2; i++) {
+		r = _write_boot_stream(md, fp, i);
+		if(r)
+			return r;
 	}
 	return 0;
 }
@@ -3884,6 +3891,14 @@ int v4_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 	loff_t ofs;
 	struct mtd_config *cfg = &md->cfg;
 
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [0] Write the 1st boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 0);
+		if (r)
+			return r;
+	}
+
 	/* [1] Write the FCB search area. */
 	size = mtd_writesize(md) + mtd_oobsize(md);
 	memset(md->buf, 0, size);
@@ -3915,8 +3930,15 @@ int v4_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 		}
 	}
 
-	/* [3] Write the two boot streams. */
-	return write_boot_stream(md, fp);
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [3] Write the 2nd boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 1);
+		return r;
+	} else {
+		/* [3] Write the two boot streams. */
+		return write_boot_stream(md, fp);
+	}
 }
 
 int v5_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
@@ -3924,6 +3946,14 @@ int v5_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 	int size, i, r, chip = 0;
 	loff_t ofs;
 	struct mtd_config *cfg = &md->cfg;
+
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [0] Write the 1st boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 0);
+		if (r)
+			return r;
+	}
 
 	/* [1] Write the FCB search area. */
 	size = mtd_writesize(md) + mtd_oobsize(md);
@@ -3961,8 +3991,15 @@ int v5_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 		}
 	}
 
-	/* [3] Write the two boot streams. */
-	return write_boot_stream(md, fp);
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [3] Write the 2nd boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 1);
+		return r;
+	} else {
+		/* [3] Write the two boot streams. */
+		return write_boot_stream(md, fp);
+	}
 }
 
 int v6_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
@@ -3970,6 +4007,14 @@ int v6_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 	int size, i, r, chip = 0;
 	loff_t ofs;
 	struct mtd_config *cfg = &md->cfg;
+
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [0] Write the 1st boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 0);
+		if (r)
+			return r;
+	}
 
 	/* [1] Write the FCB search area. */
 	size = mtd_writesize(md) + mtd_oobsize(md);
@@ -4003,8 +4048,15 @@ int v6_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 		}
 	}
 
-	/* [3] Write the two boot streams. */
-	return write_boot_stream(md, fp);
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [3] Write the 2nd boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 1);
+		return r;
+	} else {
+		/* [3] Write the two boot streams. */
+		return write_boot_stream(md, fp);
+	}
 }
 
 int v7_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
