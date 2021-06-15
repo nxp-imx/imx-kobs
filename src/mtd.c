@@ -737,7 +737,8 @@ int parse_nfc_geometry(struct mtd_data *md)
 	if (!plat_config_data->m_u32UseNfcGeo) {
 		/* fsl kernel patch provides bch_geometry via debugfs */
 		if (!(node = fopen(dbg_geometry_node_path, "r"))) {
-			fprintf(stderr, "Cannot open BCH geometry node: \"%s\"\n",
+			fprintf(stderr, "Cannot open BCH geometry node: \"%s\""
+				", but we can calculate it ourselves.\n",
 				dbg_geometry_node_path);
 			return cal_nfc_geometry(md);
 		}
@@ -1443,6 +1444,43 @@ void dump(const void *data, int size)
 		}
 	}
 	printf("\n");
+}
+
+static int mtd_fw_load_low(struct mtd_data *md)
+{
+	int r;
+	BCB_ROM_BootBlockStruct_t *bbs;
+
+	if (md == NULL) {
+		fprintf(stderr, "mtd: md == NULL\n");
+		return -1;
+	}
+	r = mtd_read_page(md, 0, 0, 1);
+	if (r <= 0) {
+		fprintf(stderr, "mtd: read FCB failed\n");
+		return -1;
+	}
+	switch (plat_config_data->m_u32RomVer) {
+		case ROM_Version_3:
+			bbs = md->buf + 2;
+			break;
+		case ROM_Version_5:
+			bbs = md->buf + 22;
+			break;
+		default:
+		fprintf(stderr, "mtd: Unknown RomVer.\n");
+		return -1;
+	}
+	if (FCB_FINGERPRINT != bbs->m_u32FingerPrint) {
+		fprintf(stderr, "mtd: FCB Fingerprint not found\n");
+		return -1;
+	}
+	if (bbs->FCB_Block.m_u32Firmware1_startingPage < bbs->FCB_Block.m_u32Firmware2_startingPage)
+	{
+		return 1;
+	} else {
+		return 0;
+	}
 }
 
 void *mtd_load_boot_structure(struct mtd_data *md, int chip, loff_t *ofsp, loff_t end,
@@ -2258,6 +2296,7 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 	unsigned int boot_stream_size_in_blocks;
 	unsigned int boot_stream1_pos;
 	unsigned int boot_stream2_pos;
+	unsigned int boot_stream_pos;
 	unsigned int sbs_off_byte; /* secondary_boot_stream_off_in_byte  */
 	int valid_offset_flag;
 
@@ -2464,6 +2503,21 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 			boot_stream2_pos,
 			boot_stream2_pos + max_boot_stream_size_in_bytes,
 			boot_stream2_pos + boot_stream_size_in_bytes);
+
+	/* Compute slot switch feature */
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		if (1 == mtd_fw_load_low(md)) {
+			vp(md,"FW slot switch to HIGH!!!\n");
+			boot_stream_pos = boot_stream1_pos;
+			boot_stream1_pos = boot_stream2_pos;
+			boot_stream2_pos = boot_stream_pos;
+			boot_stream_pos = extra_boot_stream1_pos;
+			extra_boot_stream1_pos = extra_boot_stream2_pos;
+			extra_boot_stream2_pos = boot_stream_pos;
+		} else {
+			vp(md,"FW slot switch to LOW!!!\n");
+		}
+	}
 
 	memset(fcb, 0, sizeof(*fcb));
 
@@ -3317,11 +3371,19 @@ int write_boot_stream(struct mtd_data *md, FILE *fp)
 		if (i == 0) {
 			startpage = fcb->m_u32Firmware1_startingPage;
 			size      = fcb->m_u32PagesInFirmware1;
-			end       = fcb->m_u32Firmware2_startingPage;
+			if (fcb->m_u32Firmware2_startingPage > fcb->m_u32Firmware1_startingPage) {
+				end   = fcb->m_u32Firmware2_startingPage;
+			} else {
+				end   = mtd_size(md) / mtd_writesize(md);
+			}
 		} else {
 			startpage = fcb->m_u32Firmware2_startingPage;
 			size      = fcb->m_u32PagesInFirmware2;
-			end       = mtd_size(md) / mtd_writesize(md);
+			if (fcb->m_u32Firmware1_startingPage > fcb->m_u32Firmware2_startingPage) {
+				end   = fcb->m_u32Firmware1_startingPage;
+			} else {
+				end   = mtd_size(md) / mtd_writesize(md);
+			}
 		}
 
 		start = startpage * mtd_writesize(md);

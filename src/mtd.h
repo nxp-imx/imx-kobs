@@ -47,6 +47,7 @@
 #define F_VERBOSE		0x01
 #define F_MULTICHIP		0x02
 #define F_AUTO_MULTICHIP	0x04
+#define F_FW_SLOT_SWITCH	0x08
 
 #define vp(x, ...)	\
 	do {		\

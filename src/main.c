@@ -82,6 +82,7 @@ void usage(void)
 	"    -x .................................... Add 1k-padding in the head\n"
 	"    -n .................................... Dry run (don't commit to flash)\n"
 	"    -w .................................... Commit to flash\n"
+	"    -s .................................... Switch Firmware_startingPages 1<->2\n"
 	"\n"
 	"  update [-v] [KEY] [KOBS] [-0|1] <file> .. Update a single bootstream\n"
 	"    -v .................................... Verbose mode\n"
@@ -675,6 +676,9 @@ int init_main(int argc, char **argv)
 				break;
 			case 'v':
 				flags |= F_VERBOSE;
+				break;
+			case 's':
+				flags |= F_FW_SLOT_SWITCH;
 				break;
 		}
 	}
