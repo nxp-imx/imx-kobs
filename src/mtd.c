@@ -879,9 +879,6 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	    || plat_config_data->m_u32Arm_type == MX6Q
 	    || plat_config_data->m_u32Arm_type == MX6DL) {
 
-		md->cfg.search_exponent = 1;
-		vp(md, "mtd: search_exponent set to 1 by default\n");
-
 		/* open the nvmem file */
 		if (plat_config_data->m_u32Arm_type == MX8Q) {
 			fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "rb");
@@ -891,6 +888,8 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 		}
 		if (plat_config_data->m_u32Arm_type == MX8MN ||
 		    plat_config_data->m_u32Arm_type == MX8MP) {
+			md->cfg.search_exponent = 1;
+			vp(md, "mtd: search_exponent set to 1 by default\n");
 			fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "rb");
 			fuse_off = MX8MN_FUSE_NAND_SEARCH_CNT_OFFS;
 			fuse_bit = MX8MN_FUSE_NAND_SEARCH_CNT_BIT_OFFS;
@@ -915,7 +914,6 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 					// see linux kernel's imx-ocotp.c:imx_ocotp_read
 					if (word == 0xBADABADA) {
 						vp(md, "mtd: read back a \"read locked\" register. Got invalid value: 0x%x\n", word);
-						md->cfg.search_exponent = 1;
 					} else {
 						word &= 0x000f;
 						vp(md, "mtd: read back from fuse: %x\n", word);
