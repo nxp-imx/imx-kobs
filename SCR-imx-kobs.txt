@@ -1,0 +1,11 @@
+Package:                     imx-kobs.git
+Outgoing License:            GPL-2.0 
+License File:                COPYING
+Type of Content:             source
+Description and comments:    NAND boot writer
+Release Location:            https://github.com/NXPmicro/imx-kobs -b master
+Origin:                      NXP (GPL-2.0)
+                             AES (BSD-3-Clause) - http://brgladman.org/oldsite/AES/
+                             Secure Hash Algorithm Implementation (Public Domain) - http://www.nic.funet.fi/pub/crypt/hash/sha/
+                             IGEP Linux Kernel (GPL-2.0+) - http://www.igep.es/
+                             Generic binary BCH encoding/decoding library - Parrot S.A. (GPL-2.0) - https://lwn.net/Articles/426856/
