@@ -47,7 +47,6 @@
 #include <sys/un.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
-#include <sys/sendfile.h>
 
 #include "mtd.h"
 #include "plat_boot_config.h"
@@ -556,33 +555,29 @@ int update_main(int argc, char **argv)
 	return 0;
 }
 
-static char *tmp_file = ".tmp_kobs_ng";
-static char *padding_1k_in_head(char *file_name)
+static FILE *padding_1k_in_head(FILE *from)
 {
-	int to, from;
-	int ret;
-	int sz = getpagesize();
+	FILE *to;
+	char buf[BUFSIZ];
+	size_t size;
 
-	from = open(file_name, O_RDONLY, S_IRUSR | S_IWUSR);
-	to = open(tmp_file, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
-	if (from < 0 || to < 0) {
+	to = tmpfile();
+	if (from == NULL || to == NULL) {
 		fprintf(stderr, "unable to create a temporary file\n");
 		exit(5);
 	}
 
 	/* Padding 1k in the head. */
-	lseek(to, 1024, SEEK_SET);
+	fseek(to, 1024, SEEK_SET);
 
-	do {
-		/* copy a page each time. */
-		ret = sendfile(to, from, NULL, sz);
-	} while (ret > 0);
+	while ((size = fread(buf, 1, BUFSIZ, from)) > 0) {
+		fwrite(buf, 1, size, to);
+	}
 
-	close(to);
-	close(from);
+	fclose(from);
 
 	/* change to the temporary file. */
-	return tmp_file;
+	return to;
 }
 
 int init_main(int argc, char **argv)
@@ -671,17 +666,17 @@ int init_main(int argc, char **argv)
 	 * So we have to add the 1k-padding ourselves.
 	 * Note: We only burn the uboot to nand in the kernel 3.5.7.
 	 */
-	if (padding) {
-		infile = padding_1k_in_head(infile);
-
-		if (flags & F_VERBOSE)
-			printf("\t -- We add the 1k-padding to the uboot.\n");
-	}
-
 	infp = fopen(infile, "rb");
 	if (infp == NULL) {
 		fprintf(stderr, "Unable to open input file '%s'\n", infile);
 		usage();
+	}
+
+	if (padding) {
+		infp = padding_1k_in_head(infp);
+
+		if (flags & F_VERBOSE)
+			printf("\t -- We add the 1k-padding to the uboot.\n");
 	}
 
 	keyp = !device_key ? key : NULL;
