@@ -47,6 +47,7 @@
 #define F_VERBOSE		0x01
 #define F_MULTICHIP		0x02
 #define F_AUTO_MULTICHIP	0x04
+#define F_FW_SLOT_SWITCH	0x08
 
 #define vp(x, ...)	\
 	do {		\
@@ -322,6 +323,8 @@ int mtd_set_ecc_mode(struct mtd_data *md, int ecc);
 void mtd_parse_args(struct mtd_config *cfg, int argc, char **argv);
 void mtd_parse_kobs(struct mtd_config *cfg, const char *name, int verbose);
 void mtd_cfg_dump(struct mtd_config *cfg);
+
+uint32_t checksum(const uint8_t *ptr, size_t size);
 
 int ncb_get_version(void *ncb_candidate, NCB_BootBlockStruct_t **result);
 int ncb_encrypt(NCB_BootBlockStruct_t *ncb, void *target, size_t size, int version);

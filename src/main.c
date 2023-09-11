@@ -82,6 +82,7 @@ void usage(void)
 	"    -x .................................... Add 1k-padding in the head\n"
 	"    -n .................................... Dry run (don't commit to flash)\n"
 	"    -w .................................... Commit to flash\n"
+	"    -s .................................... Switch Firmware_startingPages 1<->2\n"
 	"\n"
 	"  update [-v] [KEY] [KOBS] [-0|1] <file> .. Update a single bootstream\n"
 	"    -v .................................... Verbose mode\n"
@@ -179,7 +180,7 @@ int extract_main(int argc, char **argv)
 	char buf[512];
 	struct mtd_config cfg;
 	uint8_t key[16];
-	long end_of_file, pos;
+	long end_of_file = 0, pos;
 	char ascii[20 * 2 + 1];
 	FILE *tfp;
 	int readn, chunk, curr;
@@ -263,20 +264,35 @@ int extract_main(int argc, char **argv)
 	}
 
 	chip = 0;
-	startpage = image == 0 ?
-		md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector :
-		md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2;
-	size =  image == 0 ?
-		md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware :
-		md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware2 ;
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_DBBT_FROM_FCB) {
+		if (image != 0) {
+			fprintf(stderr, "Multichip NAND behavior not supported.\n");
+			exit(5);
+		}
+		startpage = md->fcb.FCB_Block.m_u32Firmware1_startingPage;
+		size = md->fcb.FCB_Block.m_u32PagesInFirmware1;
+	} else {
+		startpage = image == 0 ?
+			md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector :
+			md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2;
+		size =  image == 0 ?
+			md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware :
+			md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware2;
+	}
 	if (md->flags & F_MULTICHIP)
 		chip = image;
 
 	if (flags & F_VERBOSE)
 		printf("startpage=%u, size=%u\n", startpage, size);
 
-	start = startpage * 2048;
-	size = size * 2048;
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_FCB) {
+		start = startpage * md->fcb.FCB_Block.m_u32PageDataSize;
+		size = size * md->fcb.FCB_Block.m_u32PageDataSize;
+	} else {
+		start = startpage * 2048;
+		size = size * 2048;
+	}
 	while (size > 0) {
 
 		/* skip bad blocks */
@@ -292,7 +308,7 @@ int extract_main(int argc, char **argv)
 			exit(5);
 		}
 		r = fwrite(buf, sizeof(buf), 1, outfp);
-		if (sizeof(buf) != 1)
+		if (r != 1)
 			fprintf(stderr, "Write to file failed\n");
 
 		start += sizeof(buf);
@@ -410,26 +426,28 @@ static int perform_bootstream_update(struct mtd_data *md, FILE *infp, int image_
 		if ((image_mask & (1 << i)) == 0)
 			continue;
 
-		/* first verify it fits */
-		if (i == 0) {
-			start = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector  * 2048;
-			end = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2 * 2048;
-		} else {
-			start = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2 * 2048;
-			end = mtd_size(md);
-		}
-		avail = end - start;
+		if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_LDLB) {
+			/* first verify it fits */
+			if (i == 0) {
+				start = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector  * 2048;
+				end = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2 * 2048;
+			} else {
+				start = md->curr_ldlb->LDLB_Block2.m_u32Firmware_startingSector2 * 2048;
+				end = mtd_size(md);
+			}
+			avail = end - start;
 
-		if (avail <= size) {
-			fprintf(stderr, "image #d does not fit (avail = %u, size = %u)\n", avail, size);
-			exit(5);
-		}
+			if (avail <= size) {
+				fprintf(stderr, "image #d does not fit (avail = %u, size = %u)\n", avail, size);
+				exit(5);
+			}
 
-		/* now update size */
-		if (i == 0)
-			md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware = (size + 2047) / 2048;
-		else
-			md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware2 = (size + 2047) / 2048;
+			/* now update size */
+			if (i == 0)
+				md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware = (size + 2047) / 2048;
+			else
+				md->curr_ldlb->LDLB_Block2.m_uSectorsInFirmware2 = (size + 2047) / 2048;
+		}
 		update |= UPDATE_BS(i);
 	}
 
@@ -658,6 +676,9 @@ int init_main(int argc, char **argv)
 				break;
 			case 'v':
 				flags |= F_VERBOSE;
+				break;
+			case 's':
+				flags |= F_FW_SLOT_SWITCH;
 				break;
 		}
 	}

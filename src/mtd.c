@@ -50,6 +50,10 @@
 #define IMX8QM_SPL_OFF		0x19c00
 #define IMX8QM_FIT_OFF		0x57c00
 
+/* define 6QDL FUSE value location */
+#define MX6QDL_FUSE_NAND_SEARCH_CNT_OFFS 0x50 // this offset is relative to 0x400, hardcoded into the imx-ocotp driver.
+#define MX6QDL_FUSE_NAND_SEARCH_CNT_BIT_OFFS (3+8)
+#define MX6QDL_FUSE_NAND_SEARCH_CNT_MASK 3
 /* define 8Q FUSE value location */
 #define MX8Q_FUSE_NAND_SEARCH_CNT_OFFS 0x700
 #define MX8Q_FUSE_NAND_SEARCH_CNT_BIT_OFFS 6
@@ -325,7 +329,7 @@ int mtd_read_page(struct mtd_data *md, int chip, loff_t ofs, int ecc)
 		struct nfc_geometry *nfc_geo = &md->nfc_geometry;
 		int eccbits = nfc_geo->ecc_strength * nfc_geo->gf_len;
 		int chunksize = nfc_geo->ecc_chunkn_size_in_bytes;
-		int dst_bit_off;
+		int dst_bit_off = 0;
 		int oob_bit_off;
 		int oob_bit_left;
 		int ecc_chunk_count;
@@ -441,7 +445,7 @@ int mtd_write_page(struct mtd_data *md, int chip, loff_t ofs, int ecc)
 		struct nfc_geometry *nfc_geo = &md->nfc_geometry;
 		int eccbits = nfc_geo->ecc_strength * nfc_geo->gf_len;
 		int chunksize = nfc_geo->ecc_chunkn_size_in_bytes;
-		int src_bit_off;
+		int src_bit_off = 0;
 		int oob_bit_off;
 		int oob_bit_left;
 		int ecc_chunk_count;
@@ -733,7 +737,8 @@ int parse_nfc_geometry(struct mtd_data *md)
 	if (!plat_config_data->m_u32UseNfcGeo) {
 		/* fsl kernel patch provides bch_geometry via debugfs */
 		if (!(node = fopen(dbg_geometry_node_path, "r"))) {
-			fprintf(stderr, "Cannot open BCH geometry node: \"%s\"\n",
+			fprintf(stderr, "Cannot open BCH geometry node: \"%s\""
+				", but we can calculate it ourselves.\n",
 				dbg_geometry_node_path);
 			return cal_nfc_geometry(md);
 		}
@@ -826,7 +831,7 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	int i, k, j, r, no;
 	loff_t ofs;
 	FILE *fp;
-	char tmp;
+	uint32_t word;
 	int fuse_off, fuse_bit, fuse_mask;
 
 	md = malloc(sizeof(*md));
@@ -871,10 +876,8 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 	 */
 	if (plat_config_data->m_u32Arm_type == MX8Q
 	    || plat_config_data->m_u32Arm_type == MX8MN
-	    || plat_config_data->m_u32Arm_type == MX8MP) {
-
-		md->cfg.search_exponent = 1;
-		vp(md, "mtd: search_exponent set to 1 by default\n");
+	    || plat_config_data->m_u32Arm_type == MX6Q
+	    || plat_config_data->m_u32Arm_type == MX6DL) {
 
 		/* open the nvmem file */
 		if (plat_config_data->m_u32Arm_type == MX8Q) {
@@ -885,32 +888,51 @@ struct mtd_data *mtd_open(const struct mtd_config *cfg, int flags)
 		}
 		if (plat_config_data->m_u32Arm_type == MX8MN ||
 		    plat_config_data->m_u32Arm_type == MX8MP) {
+			md->cfg.search_exponent = 1;
+			vp(md, "mtd: search_exponent set to 1 by default\n");
 			fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "rb");
 			fuse_off = MX8MN_FUSE_NAND_SEARCH_CNT_OFFS;
 			fuse_bit = MX8MN_FUSE_NAND_SEARCH_CNT_BIT_OFFS;
 			fuse_mask = MX8MN_FUSE_NAND_SEARCH_CNT_MASK;
 		}
+		if (plat_config_data->m_u32Arm_type == MX6DL ||
+		    plat_config_data->m_u32Arm_type == MX6Q) {
+			fp = fopen("/sys/bus/nvmem/devices/imx-ocotp0/nvmem", "rb");
+			fuse_off = MX6QDL_FUSE_NAND_SEARCH_CNT_OFFS;
+			fuse_bit = MX6QDL_FUSE_NAND_SEARCH_CNT_BIT_OFFS;
+			fuse_mask = MX6QDL_FUSE_NAND_SEARCH_CNT_MASK;
+		}
 		if (fp) {
 			/* move to the nand_boot_search_count offset */
 			if (!fseek(fp, fuse_off, SEEK_SET)) {
 				/* read out the nand_boot_search_count from fuse */
-				if (fread(&tmp, 1, 1, fp) == 1) {
-					vp(md, "read back from fuse: %x\n", tmp);
-					switch ((tmp >> fuse_bit) && fuse_mask) {
-						case 0:
-						case 1:
-							md->cfg.search_exponent = 1;
-							break;
-						case 2:
-							md->cfg.search_exponent = 2;
-							break;
-						case 3:
-							md->cfg.search_exponent = 3;
-							break;
-						default:
-							md->cfg.search_exponent = 1;
+				/* The kernel nvmem driver `imx-ocotp` has a bug, which was fixed by
+				 * 3311bf18467272388039922a5e29c4925b291f73, that will make it
+				 * ignore reads that are shorter than 4 bytes.
+				 */
+				if (fread(&word, sizeof(word), 1, fp) == 1) {
+					// see linux kernel's imx-ocotp.c:imx_ocotp_read
+					if (word == 0xBADABADA) {
+						vp(md, "mtd: read back a \"read locked\" register. Got invalid value: 0x%x\n", word);
+					} else {
+						word &= 0x000f;
+						vp(md, "mtd: read back from fuse: %x\n", word);
+						switch ((word >> fuse_bit) & fuse_mask) {
+							case 0:
+							case 1:
+								md->cfg.search_exponent = 1;
+								break;
+							case 2:
+								md->cfg.search_exponent = 2;
+								break;
+							case 3:
+								md->cfg.search_exponent = 3;
+								break;
+							default:
+								md->cfg.search_exponent = 1;
+						}
 					}
-				vp(md, "mtd: search_exponent was set by fuse as %d\n"
+				vp(md, "mtd: search_exponent was set as %d\n"
 						, md->cfg.search_exponent);
 				}
 			}
@@ -1422,6 +1444,43 @@ void dump(const void *data, int size)
 	printf("\n");
 }
 
+static int mtd_fw_load_low(struct mtd_data *md)
+{
+	int r;
+	BCB_ROM_BootBlockStruct_t *bbs;
+
+	if (md == NULL) {
+		fprintf(stderr, "mtd: md == NULL\n");
+		return -1;
+	}
+	r = mtd_read_page(md, 0, 0, 1);
+	if (r <= 0) {
+		fprintf(stderr, "mtd: read FCB failed\n");
+		return -1;
+	}
+	switch (plat_config_data->m_u32RomVer) {
+		case ROM_Version_3:
+			bbs = md->buf + 2;
+			break;
+		case ROM_Version_5:
+			bbs = md->buf + 22;
+			break;
+		default:
+		fprintf(stderr, "mtd: Unknown RomVer.\n");
+		return -1;
+	}
+	if (FCB_FINGERPRINT != bbs->m_u32FingerPrint) {
+		fprintf(stderr, "mtd: FCB Fingerprint not found\n");
+		return -1;
+	}
+	if (bbs->FCB_Block.m_u32Firmware1_startingPage < bbs->FCB_Block.m_u32Firmware2_startingPage)
+	{
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
 void *mtd_load_boot_structure(struct mtd_data *md, int chip, loff_t *ofsp, loff_t end,
 		uint32_t magic1, uint32_t magic2, uint32_t magic3, int use_ecc,
 		int magic_offset)
@@ -1480,28 +1539,12 @@ void *mtd_load_boot_structure(struct mtd_data *md, int chip, loff_t *ofsp, loff_
 	return md->buf;
 }
 
-/* single chip version */
-int mtd_load_all_boot_structures(struct mtd_data *md)
+static int mtd_load_nand_control_block(struct mtd_data *md, int stride, int search_area_sz)
 {
 	loff_t ofs, end;
-	int search_area_sz, stride;
-	int i, j, r, no, sz;
+	int i;
 	void *buf;
-	BadBlockTableNand_t *bbtn;
-	struct mtd_part *mp;
 	int chip;
-
-	stride = PAGES_PER_STRIDE * mtd_writesize(md);
-	search_area_sz = (1 << md->cfg.search_exponent) * stride;
-
-	/* make sure it fits */
-	if (search_area_sz * 6 > mtd_size(md)) {
-		fprintf(stderr, "mtd: search areas too large\n"
-			"\tsearch_area_sz * 6 > mtd_size\n"
-			"\t%#x * 6 > %#x",
-			search_area_sz, mtd_size(md));
-		return -1;
-	}
 
 	/* NCBs are NCB1, NCB2 */
 	for (i = 0; i < 2; i++) {
@@ -1575,6 +1618,16 @@ int mtd_load_all_boot_structures(struct mtd_data *md)
 	else
 		md->curr_ncb = &md->ncb[1];
 
+	return 0;
+}
+
+static int mtd_load_logical_drive_layout_block(struct mtd_data *md, int stride, int search_area_sz)
+{
+	loff_t ofs, end;
+	int i;
+	void *buf;
+	int chip;
+
 	/* LDLBs are right after the NCBs */
 	for (i = 0; i < 2; i++) {
 
@@ -1625,94 +1678,149 @@ int mtd_load_all_boot_structures(struct mtd_data *md)
 	else
 		md->curr_ldlb = &md->ldlb[1];
 
-	/* DBBTs are right after the LDLBs */
-	for (i = 0; i < 2; i++) {
+	return 0;
+}
 
-		if (multichip(md)) {
-			ofs = 2 * search_area_sz;
-			chip = i;
-		} else {
-			ofs = (4 + i) * search_area_sz;
+static int mtd_load_discoverable_bad_block_table(struct mtd_data *md, int stride, int search_area_sz)
+{
+	const loff_t dbbt_offset = md->fcb.FCB_Block.m_u32DBBTSearchAreaStartAddress * md->fcb.FCB_Block.m_u32PageDataSize;
+	const off_t bad_block_index_relative_offset = offsetof(BCB_ROM_BootBlockStruct_t, DBBT_Block);
+	const loff_t bad_block_index_offset = dbbt_offset + bad_block_index_relative_offset;
+	loff_t ofs, end;
+	int i, j, r, no, sz;
+	void *buf;
+	int chip;
+
+	if (plat_config_data->m_u32BCBBlocksFlags & (BCB_READ_FCB || BCB_READ_VIA_FILE_API || BCB_READ_DBBT_FROM_FCB)) {
+		/* Read the DBBT in two steps:
+		   1. Read the checksum, fingerprint, version and size of the dynamic part (=20 bytes).
+		   2. Read the dynamic part, but ignore Tables sizes >1 and read right into md->bttn[NAND_CHIP].
+		*/
+		const size_t dbbt_size = 20;
+		if (plat_config_data->m_u32UseMultiBootArea) {
+			fprintf(stderr, "mtd: warning examining only first FCB.\n");
+		}
+		for (i = 0; (i * md->cfg.stride_size_in_bytes) < md->cfg.search_area_size_in_bytes; i++) {
+			r = mtd_read(md, 0, &md->dbbt50, dbbt_size, dbbt_offset + (i * md->cfg.stride_size_in_bytes));
+			if (r != dbbt_size)
+				continue;
+			/* there is no checksum inside the dbbt structure */
+			if (md->dbbt50.m_u32FingerPrint != plat_config_data->m_u32DBBT_FingerPrint)
+				continue;
+			/* i.MX 6 DQRM 8.5.2.4 - DBBT Structure
+			The following would be the _correct_ thing to do:
+				1. read the table size
+				2. allocate the necessary memory to read the entire table
+			However, every tool (imx-kobs, barebox, uboot) seems to go with the assumption,
+			that there is at most a single page (4byte/entry) worth of bad blocks entries (=512).
+			const size_t bad_block_table_in_bytes = md->dbbt50.DBBT_Block.v3.m_u32DBBTNumOfPages * mtd_writesize(md);
+			*/
+			md->bbtn[0] = malloc(sizeof(*md->bbtn[0]));
+			r = mtd_read(md, 0, md->bbtn[0], sizeof(*md->bbtn[0]), bad_block_index_offset);
+			if (r != TYPICAL_NAND_READ_SIZE)
+				return -1;
+			return 0;
+		}
+		return -1;
+	} else {
+		/* DBBTs are right after the LDLBs */
+		for (i = 0; i < 2; i++) {
+
+			if (multichip(md)) {
+				ofs = 2 * search_area_sz;
+				chip = i;
+			} else {
+				ofs = (4 + i) * search_area_sz;
+				chip = 0;
+			}
+
+			end = ofs + search_area_sz;
+			md->curr_dbbt = NULL;
+			md->dbbt_ofs[i] = -1;
+
+			buf = mtd_load_boot_structure(md, chip, &ofs, end,
+					DBBT_FINGERPRINT1,
+					plat_config_data->m_u32DBBT_FingerPrint,
+					DBBT_FINGERPRINT3,
+					1, 0);
+			if (buf == NULL) {
+				fprintf(stderr, "mtd: DBBT%d not found\n", i);
+				continue;
+			}
+			md->curr_dbbt = buf;
+
+			if (md->flags & F_VERBOSE)
+				printf("mtd: Valid DBBT%d found @%d:0x%llx\n", i, chip, ofs);
+
+			md->dbbt[i] = *md->curr_dbbt;
+			md->curr_dbbt = NULL;
+			md->dbbt_ofs[i] = ofs;
+		}
+
+		if (md->dbbt_ofs[0] != -1 && md->dbbt_ofs[1] != -1) {
+			if (memcmp(&md->dbbt[0], &md->dbbt[1], sizeof(md->dbbt[0])) != 0)
+				printf("mtd: warning DBBT1 != DBBT2, using DBBT2\n");
+		}
+
+		if (md->dbbt_ofs[0] == -1 && md->dbbt_ofs[1] == -1) {
+			fprintf(stderr, "mtd: neither DBBT1 or DBBT2 found ERROR\n");
+			return -1;
+		}
+
+		/* prefer 0 */
+		if (md->dbbt_ofs[0] != -1)
+			md->curr_dbbt = &md->dbbt[0];
+		else
+			md->curr_dbbt = &md->dbbt[1];
+
+		/* no bad blocks what-so-ever */
+		if (md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND0 == 0 &&
+			md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND1 == 0)
+			return 0;
+
+		/* find DBBT to read from */
+		if (md->curr_dbbt == &md->dbbt[0]) {
+			ofs = md->dbbt_ofs[0];
 			chip = 0;
 		}
-
-		end = ofs + search_area_sz;
-		md->curr_dbbt = NULL;
-		md->dbbt_ofs[i] = -1;
-
-		buf = mtd_load_boot_structure(md, chip, &ofs, end,
-				DBBT_FINGERPRINT1,
-				plat_config_data->m_u32DBBT_FingerPrint,
-				DBBT_FINGERPRINT3,
-				1, 0);
-		if (buf == NULL) {
-			fprintf(stderr, "mtd: DBBT%d not found\n", i);
-			continue;
-		}
-		md->curr_dbbt = buf;
-
-		if (md->flags & F_VERBOSE)
-			printf("mtd: Valid DBBT%d found @%d:0x%llx\n", i, chip, ofs);
-
-		md->dbbt[i] = *md->curr_dbbt;
-		md->curr_dbbt = NULL;
-		md->dbbt_ofs[i] = ofs;
-	}
-
-	if (md->dbbt_ofs[0] != -1 && md->dbbt_ofs[1] != -1) {
-		if (memcmp(&md->dbbt[0], &md->dbbt[1], sizeof(md->dbbt[0])) != 0)
-			printf("mtd: warning DBBT1 != DBBT2, using DBBT2\n");
-	}
-
-	if (md->dbbt_ofs[0] == -1 && md->dbbt_ofs[1] == -1) {
-		fprintf(stderr, "mtd: neither DBBT1 or DBBT2 found ERROR\n");
-		return -1;
-	}
-
-	/* prefer 0 */
-	if (md->dbbt_ofs[0] != -1)
-		md->curr_dbbt = &md->dbbt[0];
-	else
-		md->curr_dbbt = &md->dbbt[1];
-
-	/* no bad blocks what-so-ever */
-	if (md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND0 == 0 &&
-	    md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND1 == 0)
-		return 0;
-
-	/* find DBBT to read from */
-	if (md->curr_dbbt == &md->dbbt[0]) {
-		ofs = md->dbbt_ofs[0];
-		chip = 0;
-	}
-	else {
-		ofs = md->dbbt_ofs[1];
-		if (multichip(md))
-			chip = 1;
-	}
-
-	/* BBTNs start here */
-	ofs += 4 * 2048;
-	for (j = 0; j < 2; j++, ofs += sz) {
-		if (j == 0)
-			sz = md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND0;
-		else
-			sz = md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND1;
-		if (sz == 0)
-			continue;
-		sz *= 2048;
-		md->bbtn[j] = malloc(sz);
-		if (md->bbtn[j] == NULL) {
-			printf("mtd: UNABLE to allocate %d bytes for BBTN%d\n", sz, j);
-			continue;
-		}
-		r = mtd_read(md, chip, md->bbtn[j], sz, ofs);
-		if (r != sz) {
-			printf("mtd: UNABLE to read %d bytes for BBTN%d\n", sz, j);
-			continue;
+		else {
+			ofs = md->dbbt_ofs[1];
+			if (multichip(md))
+				chip = 1;
 		}
 
+		/* BBTNs start here */
+		ofs += 4 * 2048;
+		for (j = 0; j < 2; j++, ofs += sz) {
+			if (j == 0)
+				sz = md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND0;
+			else
+				sz = md->curr_dbbt->DBBT_Block1.m_u32Number2KPagesBB_NAND1;
+			if (sz == 0)
+				continue;
+			sz *= 2048;
+			md->bbtn[j] = malloc(sz);
+			if (md->bbtn[j] == NULL) {
+				printf("mtd: UNABLE to allocate %d bytes for BBTN%d\n", sz, j);
+				continue;
+			}
+			r = mtd_read(md, chip, md->bbtn[j], sz, ofs);
+			if (r != sz) {
+				printf("mtd: UNABLE to read %d bytes for BBTN%d\n", sz, j);
+				continue;
+			}
+
+		}
 	}
+
+	return 0;
+}
+
+void mtd_update_discoverable_bad_block_table(struct mtd_data *md)
+{
+	BadBlockTableNand_t *bbtn;
+	struct mtd_part *mp;
+	int i, j, no;
 
 	/* update bad block table */
 	for (j = 0; j < 2; j++) {
@@ -1743,6 +1851,92 @@ int mtd_load_all_boot_structures(struct mtd_data *md)
 				printf("mtd: '%s' bad block @ 0x%llx (DBBT)\n", mp->name, (loff_t)no * mtd_erasesize(md));
 		}
 	}
+}
+
+static int mtd_load_firmware_control_block(struct mtd_data *md)
+{
+	// the checksum does _not_ include the checksum itself, so add the offset.
+	size_t size_of_fcb;
+	const uint8_t *checksum_ptr;
+	uint32_t calculated_checksum;
+	int i, r = 0;
+	switch (plat_config_data->m_u32Arm_type) {
+		case MX6DL:
+		case MX6Q:
+			// the reference manual specifies a smaller FCB
+			size_of_fcb = offsetof(struct fcb_block, m_u32RandomizerEnable)
+			+ offsetof(BCB_ROM_BootBlockStruct_t, FCB_Block);
+			break;
+		default:
+			size_of_fcb = sizeof(md->fcb.FCB_Block) + offsetof(BCB_ROM_BootBlockStruct_t, FCB_Block);
+	}
+	for (i = 0; (i * md->cfg.stride_size_in_bytes) < md->cfg.search_area_size_in_bytes; i++) {
+		r = mtd_read(md, 0, &md->fcb, size_of_fcb, FCB_OFFSET + (i * md->cfg.stride_size_in_bytes));
+		if (r != size_of_fcb)
+			return -1;
+		if (md->fcb.m_u32FingerPrint != FCB_FINGERPRINT)
+			return -1;
+		checksum_ptr = &md->fcb.m_u32FingerPrint;
+		calculated_checksum = checksum(checksum_ptr, size_of_fcb - offsetof(BCB_ROM_BootBlockStruct_t, m_u32FingerPrint));
+		if (md->fcb.m_u32Checksum == calculated_checksum)
+			break;
+	}
+	if (md->fcb.m_u32Checksum != calculated_checksum) {
+		fprintf(stderr, "mtd: could not find intact FCB.\n");
+		return -1;
+	}
+	return 0;
+}
+
+/* single chip version */
+int mtd_load_all_boot_structures(struct mtd_data *md)
+{
+	loff_t ofs, end;
+	int search_area_sz, stride;
+	int i, j, r, no, sz;
+	void *buf;
+	BadBlockTableNand_t *bbtn;
+	struct mtd_part *mp;
+	int chip;
+
+	stride = PAGES_PER_STRIDE * mtd_writesize(md);
+	search_area_sz = (1 << md->cfg.search_exponent) * stride;
+
+	/* make sure it fits */
+	if (search_area_sz * 6 > mtd_size(md)) {
+		fprintf(stderr, "mtd: search areas too large\n"
+			"\tsearch_area_sz * 6 > mtd_size\n"
+			"\t%#x * 6 > %#x",
+			search_area_sz, mtd_size(md));
+		return -1;
+	}
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_NCB) {
+		r = mtd_load_nand_control_block(md, stride, search_area_sz);
+		if (r)
+			return r;
+	}
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_LDLB) {
+		r = mtd_load_logical_drive_layout_block(md, stride, search_area_sz);
+		if (r)
+			return r;
+	}
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_FCB) {
+		r = mtd_load_firmware_control_block(md);
+		if (r)
+			return r;
+	}
+
+	if (plat_config_data->m_u32BCBBlocksFlags & BCB_READ_DBBT) {
+		r = mtd_load_discoverable_bad_block_table(md, stride, search_area_sz);
+		if (r)
+			return r;
+	}
+
+	mtd_update_discoverable_bad_block_table(md);
+
 	return 0;
 }
 
@@ -2100,6 +2294,7 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 	unsigned int boot_stream_size_in_blocks;
 	unsigned int boot_stream1_pos;
 	unsigned int boot_stream2_pos;
+	unsigned int boot_stream_pos;
 	unsigned int sbs_off_byte; /* secondary_boot_stream_off_in_byte  */
 	int valid_offset_flag;
 
@@ -2306,6 +2501,21 @@ static int fill_fcb(struct mtd_data *md, FILE *fp)
 			boot_stream2_pos,
 			boot_stream2_pos + max_boot_stream_size_in_bytes,
 			boot_stream2_pos + boot_stream_size_in_bytes);
+
+	/* Compute slot switch feature */
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		if (1 == mtd_fw_load_low(md)) {
+			vp(md,"FW slot switch to HIGH!!!\n");
+			boot_stream_pos = boot_stream1_pos;
+			boot_stream1_pos = boot_stream2_pos;
+			boot_stream2_pos = boot_stream_pos;
+			boot_stream_pos = extra_boot_stream1_pos;
+			extra_boot_stream1_pos = extra_boot_stream2_pos;
+			extra_boot_stream2_pos = boot_stream_pos;
+		} else {
+			vp(md,"FW slot switch to LOW!!!\n");
+		}
+	}
 
 	memset(fcb, 0, sizeof(*fcb));
 
@@ -3142,102 +3352,117 @@ int write_extra_boot_stream(struct mtd_data *md, FILE *fp)
 	return 0;
 }
 
-
-int write_boot_stream(struct mtd_data *md, FILE *fp)
+int _write_boot_stream(struct mtd_data *md, FILE *fp, int slot)
 {
 	int startpage, start, size;
 	loff_t ofs, end;
-	int i, r, chunk;
+	int i = slot, r, chunk;
 	int chip = 0;
 	struct fcb_block *fcb = &md->fcb.FCB_Block;
 
-	vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
-	for (i = 0; i < 2; i++) {
-		if (fp == NULL)
-			continue;
-
-		if (i == 0) {
-			startpage = fcb->m_u32Firmware1_startingPage;
-			size      = fcb->m_u32PagesInFirmware1;
-			end       = fcb->m_u32Firmware2_startingPage;
+	if (i == 0) {
+		startpage = fcb->m_u32Firmware1_startingPage;
+		size      = fcb->m_u32PagesInFirmware1;
+		if (fcb->m_u32Firmware2_startingPage > fcb->m_u32Firmware1_startingPage) {
+			end   = fcb->m_u32Firmware2_startingPage;
 		} else {
-			startpage = fcb->m_u32Firmware2_startingPage;
-			size      = fcb->m_u32PagesInFirmware2;
-			end       = mtd_size(md) / mtd_writesize(md);
+			end   = mtd_size(md) / mtd_writesize(md);
+		}
+	} else {
+		startpage = fcb->m_u32Firmware2_startingPage;
+		size      = fcb->m_u32PagesInFirmware2;
+		if (fcb->m_u32Firmware1_startingPage > fcb->m_u32Firmware2_startingPage) {
+			end   = fcb->m_u32Firmware1_startingPage;
+		} else {
+			end   = mtd_size(md) / mtd_writesize(md);
+		}
+	}
+
+	start = startpage * mtd_writesize(md);
+	size  = size      * mtd_writesize(md);
+	end   = end       * mtd_writesize(md);
+
+	vp(md, "mtd: Writting %s: #%d @%d: 0x%08x - 0x%08x\n",
+		(char*)md->private, i, chip, start, start + size);
+
+	/* Begin to write the image. */
+	rewind(fp);
+
+	ofs = start;
+	while (ofs < end && size > 0) {
+		while (mtd_isbad(md, chip, ofs) == 1) {
+			vp(md, "mtd: Skipping bad block at 0x%llx\n", ofs);
+			ofs += mtd_erasesize(md);
 		}
 
-		start = startpage * mtd_writesize(md);
-		size  = size      * mtd_writesize(md);
-		end   = end       * mtd_writesize(md);
-
-		vp(md, "mtd: Writting %s: #%d @%d: 0x%08x - 0x%08x\n",
-			(char*)md->private, i, chip, start, start + size);
-
-		/* Begin to write the image. */
-		rewind(fp);
-
-		ofs = start;
-		while (ofs < end && size > 0) {
-			while (mtd_isbad(md, chip, ofs) == 1) {
-				vp(md, "mtd: Skipping bad block at 0x%llx\n", ofs);
-				ofs += mtd_erasesize(md);
-			}
-
-			chunk = size;
-
-			/*
-			 * Check if we've entered a new block and, if so, erase
-			 * it before beginning to write it.
-			 */
-			if ((ofs % mtd_erasesize(md)) == 0) {
-				r = mtd_erase_block(md, chip, ofs);
-				if (r < 0) {
-					fprintf(stderr, "mtd: Failed to erase block"
-						       "@0x%llx\n", ofs);
-					ofs += mtd_erasesize(md);
-					continue;
-				}
-			}
-
-			if (chunk > mtd_writesize(md))
-				chunk = mtd_writesize(md);
-
-			r = fread(md->buf, 1, chunk, fp);
-			if (r < 0) {
-				fprintf(stderr, "mtd: Failed %d (fread %d)\n", r, chunk);
-				return -1;
-			}
-			if (r < chunk) {
-				memset(md->buf + r, 0, chunk - r);
-				vp(md, "mtd: The last page is not full : %d\n", r);
-			}
-
-			/* write page */
-			r = mtd_write_page(md, chip, ofs, 1);
-			if (r != mtd_writesize(md))
-				fprintf(stderr, "mtd: Failed to write BS @0x%llx (%d)\n",
-					ofs, r);
-
-			ofs += mtd_writesize(md);
-			size -= chunk;
-		}
+		chunk = size;
 
 		/*
-		 * Write one safe guard page:
-		 *  The Image_len of uboot is bigger then the real size of
-		 *  uboot by 1K. The ROM will get all 0xff error in this case.
-		 *  So we write one more page for safe guard.
-		 */
-		memset(md->buf, 0, mtd_writesize(md));
-		r = mtd_write_page(md, chip, ofs, 1);
-		if (r != mtd_writesize(md))
-			fprintf(stderr, "Failed to write safe page\n");
-		vp(md, "mtd: We write one page for save guard. *\n");
+			* Check if we've entered a new block and, if so, erase
+			* it before beginning to write it.
+			*/
+		if ((ofs % mtd_erasesize(md)) == 0) {
+			r = mtd_erase_block(md, chip, ofs);
+			if (r < 0) {
+				fprintf(stderr, "mtd: Failed to erase block"
+							"@0x%llx\n", ofs);
+				ofs += mtd_erasesize(md);
+				continue;
+			}
+		}
 
-		if (ofs >= end) {
-			fprintf(stderr, "mtd: Failed to write BS#%d\n", i);
+		if (chunk > mtd_writesize(md))
+			chunk = mtd_writesize(md);
+
+		r = fread(md->buf, 1, chunk, fp);
+		if (r < 0) {
+			fprintf(stderr, "mtd: Failed %d (fread %d)\n", r, chunk);
 			return -1;
 		}
+		if (r < chunk) {
+			memset(md->buf + r, 0, chunk - r);
+			vp(md, "mtd: The last page is not full : %d\n", r);
+		}
+
+		/* write page */
+		r = mtd_write_page(md, chip, ofs, 1);
+		if (r != mtd_writesize(md))
+			fprintf(stderr, "mtd: Failed to write BS @0x%llx (%d)\n",
+				ofs, r);
+
+		ofs += mtd_writesize(md);
+		size -= chunk;
+	}
+
+	/*
+		* Write one safe guard page:
+		*  The Image_len of uboot is bigger then the real size of
+		*  uboot by 1K. The ROM will get all 0xff error in this case.
+		*  So we write one more page for safe guard.
+		*/
+	memset(md->buf, 0, mtd_writesize(md));
+	r = mtd_write_page(md, chip, ofs, 1);
+	if (r != mtd_writesize(md))
+		fprintf(stderr, "Failed to write safe page\n");
+	vp(md, "mtd: We write one page for save guard. *\n");
+
+	if (ofs >= end) {
+		fprintf(stderr, "mtd: Failed to write BS#%d\n", i);
+		return -1;
+	}
+
+	return 0;
+}
+
+int write_boot_stream(struct mtd_data *md, FILE *fp)
+{
+	int i, r;
+
+	vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+	for (i = 0; i < 2; i++) {
+		r = _write_boot_stream(md, fp, i);
+		if(r)
+			return r;
 	}
 	return 0;
 }
@@ -3393,24 +3618,22 @@ int v0_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 	return 0;
 }
 
-static void dbbt_checksum(struct mtd_data *md, BCB_ROM_BootBlockStruct_t *dbbt)
+uint32_t checksum(const uint8_t *ptr, size_t size)
 {
 	uint32_t  accumulator = 0;
-	uint8_t   *p, *q;
+	size_t i;
 
-	/*
-	 * The checksum should do 508 bytes. But if the rest of the buffer is
-	 * zero. We can only add the non-zero data for the checksum.
-	 */
-	p = ((uint8_t *) dbbt) + 4;
-	q = (uint8_t *) (dbbt + 1);
-	vp(md, "DBBT checksum length : %d\n", q - p);
+	printf("mtd: checksum start: %p; length : %d\n", ptr, size);
 
-	for (; p < q; p++)
-		accumulator += *p;
-	accumulator ^= 0xffffffff;
+	for (i = 0; i < size; i++)
+		accumulator += ptr[i];
 
-	dbbt->m_u32Checksum = accumulator;
+	return ~accumulator;
+}
+
+static void dbbt_checksum(struct mtd_data *md, BCB_ROM_BootBlockStruct_t *boot_block_structure)
+{
+	boot_block_structure->m_u32Checksum = checksum((uint8_t*)boot_block_structure + offsetof(BCB_ROM_BootBlockStruct_t, m_u32Checksum), sizeof(md->dbbt50));
 }
 
 static void write_dbbt(struct mtd_data *md, int dbbt_num)
@@ -3666,6 +3889,14 @@ int v4_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 	loff_t ofs;
 	struct mtd_config *cfg = &md->cfg;
 
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [0] Write the 1st boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 0);
+		if (r)
+			return r;
+	}
+
 	/* [1] Write the FCB search area. */
 	size = mtd_writesize(md) + mtd_oobsize(md);
 	memset(md->buf, 0, size);
@@ -3697,8 +3928,15 @@ int v4_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 		}
 	}
 
-	/* [3] Write the two boot streams. */
-	return write_boot_stream(md, fp);
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [3] Write the 2nd boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 1);
+		return r;
+	} else {
+		/* [3] Write the two boot streams. */
+		return write_boot_stream(md, fp);
+	}
 }
 
 int v5_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
@@ -3706,6 +3944,14 @@ int v5_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 	int size, i, r, chip = 0;
 	loff_t ofs;
 	struct mtd_config *cfg = &md->cfg;
+
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [0] Write the 1st boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 0);
+		if (r)
+			return r;
+	}
 
 	/* [1] Write the FCB search area. */
 	size = mtd_writesize(md) + mtd_oobsize(md);
@@ -3743,8 +3989,15 @@ int v5_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 		}
 	}
 
-	/* [3] Write the two boot streams. */
-	return write_boot_stream(md, fp);
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [3] Write the 2nd boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 1);
+		return r;
+	} else {
+		/* [3] Write the two boot streams. */
+		return write_boot_stream(md, fp);
+	}
 }
 
 int v6_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
@@ -3752,6 +4005,14 @@ int v6_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 	int size, i, r, chip = 0;
 	loff_t ofs;
 	struct mtd_config *cfg = &md->cfg;
+
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [0] Write the 1st boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 0);
+		if (r)
+			return r;
+	}
 
 	/* [1] Write the FCB search area. */
 	size = mtd_writesize(md) + mtd_oobsize(md);
@@ -3785,8 +4046,15 @@ int v6_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
 		}
 	}
 
-	/* [3] Write the two boot streams. */
-	return write_boot_stream(md, fp);
+	if (md->flags & F_FW_SLOT_SWITCH) {
+		/* [3] Write the 2nd boot streams. */
+		vp(md, "---------- Start to write the [ %s ]----\n", (char*)md->private);
+		r = _write_boot_stream(md, fp, 1);
+		return r;
+	} else {
+		/* [3] Write the two boot streams. */
+		return write_boot_stream(md, fp);
+	}
 }
 
 int v7_rom_mtd_commit_structures(struct mtd_data *md, FILE *fp, int flags)
