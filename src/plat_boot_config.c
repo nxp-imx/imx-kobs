@@ -28,7 +28,7 @@
 /* System version */
 platform_config *plat_config_data;
 
-static platform_config mx23_boot_config = {
+platform_config mx23_boot_config = {
 	.m_u32RomVer = ROM_Version_0,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnSoftEcc = 0,
@@ -42,7 +42,7 @@ static platform_config mx23_boot_config = {
 	.rom_mtd_commit_structures = v0_rom_mtd_commit_structures,
 };
 
-static platform_config mx28_boot_config = {
+platform_config mx28_boot_config = {
 	.m_u32RomVer = ROM_Version_1,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnSoftEcc = 1,
@@ -56,7 +56,7 @@ static platform_config mx28_boot_config = {
 	.rom_mtd_commit_structures = v1_rom_mtd_commit_structures,
 };
 
-static platform_config mx53to1_boot_config = {
+platform_config mx53to1_boot_config = {
 	.m_u32RomVer = ROM_Version_2,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnSoftEcc = 0,
@@ -70,7 +70,7 @@ static platform_config mx53to1_boot_config = {
 	.rom_mtd_commit_structures = v2_rom_mtd_commit_structures,
 };
 
-static platform_config mx53to2_boot_config = {
+platform_config mx53to2_boot_config = {
 	.m_u32RomVer = ROM_Version_2,
 	.m_u32EnDISBBM = 1,
 	.m_u32EnSoftEcc = 0,
@@ -84,7 +84,7 @@ static platform_config mx53to2_boot_config = {
 	.rom_mtd_commit_structures = v2_rom_mtd_commit_structures,
 };
 
-static platform_config mx50_boot_config = {
+platform_config mx50_boot_config = {
 	.m_u32RomVer = ROM_Version_3,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnSoftEcc = 1,
@@ -98,7 +98,7 @@ static platform_config mx50_boot_config = {
 	.rom_mtd_commit_structures = v4_rom_mtd_commit_structures,
 };
 
-static platform_config mx6q_boot_config = {
+platform_config mx6q_boot_config = {
 	.m_u32RomVer = ROM_Version_3,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnBootStreamVerify = 0,
@@ -111,7 +111,7 @@ static platform_config mx6q_boot_config = {
 	.rom_mtd_commit_structures = v4_rom_mtd_commit_structures,
 };
 
-static platform_config mx6sx_boot_config = {
+platform_config mx6sx_boot_config = {
 	.m_u32RomVer = ROM_Version_4,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnBootStreamVerify = 0,
@@ -124,7 +124,7 @@ static platform_config mx6sx_boot_config = {
 	.rom_mtd_commit_structures = v4_rom_mtd_commit_structures,
 };
 
-static platform_config mx6sx_to_1_2_boot_config = {
+platform_config mx6sx_to_1_2_boot_config = {
 	.m_u32RomVer = ROM_Version_5,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnBootStreamVerify = 0,
@@ -137,7 +137,7 @@ static platform_config mx6sx_to_1_2_boot_config = {
 	.rom_mtd_commit_structures = v5_rom_mtd_commit_structures,
 };
 
-static platform_config mx7d_boot_config = {
+platform_config mx7d_boot_config = {
 	.m_u32RomVer = ROM_Version_5,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnBootStreamVerify = 0,
@@ -150,7 +150,7 @@ static platform_config mx7d_boot_config = {
 	.rom_mtd_commit_structures = v5_rom_mtd_commit_structures,
 };
 
-static platform_config mx6ul_boot_config = {
+platform_config mx6ul_boot_config = {
 	.m_u32RomVer = ROM_Version_5,
 	.m_u32EnDISBBM = 0,
 	.m_u32EnBootStreamVerify = 0,
