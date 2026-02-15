@@ -62,6 +62,7 @@ typedef struct _platform_config_t {
 	uint32_t m_u32Arm_type;
 	uint32_t m_u32DBBT_FingerPrint;
 	uint32_t m_u32MaxEccStrength;
+	uint32_t m_u32BCBBlocksFlags;
 	int (* rom_mtd_init)(struct mtd_data *md, FILE *fp);
 	int (* rom_mtd_commit_structures)(struct mtd_data *md, FILE *fp, int flags);
 } platform_config;

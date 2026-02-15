@@ -357,7 +357,7 @@ int ncb_encrypt(NCB_BootBlockStruct_t *ncb, void *target, size_t size, int versi
  * fcb_encrypt - Encrypt the FCB block, assuming that target system uses NCB
  * version 'version'
  *
- * fcb:     Points to valid imx28_BootBlockStruct_t structure.
+ * fcb:     Points to valid BCB_ROM_BootBlockStruct_t structure.
  * target:  Points to a buffer large enough to contain an entire NAND Flash page
  *          (both data and OOB).
  * size:    The size of an entire NAND Flash page (both data and OOB).
@@ -366,10 +366,7 @@ int ncb_encrypt(NCB_BootBlockStruct_t *ncb, void *target, size_t size, int versi
  */
 int fcb_encrypt(BCB_ROM_BootBlockStruct_t *fcb, void *target, size_t size, int version)
 {
-	uint32_t  accumulator;
-	uint8_t   *p;
-	uint8_t   *q;
-	int fcb_size;
+	const int fcb_size = MAX_HAMMING_FCB_SZ < sizeof(*fcb) ? MAX_HAMMING_FCB_SZ : sizeof(*fcb);
 
 	//----------------------------------------------------------------------
 	// Check for nonsense.
@@ -392,21 +389,7 @@ int fcb_encrypt(BCB_ROM_BootBlockStruct_t *fcb, void *target, size_t size, int v
 	// ECC bytes. However, the entire space between the top of the FCB and
 	// the base of the ECC bytes will be all zeros, so this is OK.
 	//----------------------------------------------------------------------
-
-	p = ((uint8_t *) fcb) + 4;
-	q = (uint8_t *) (fcb + 1);
-
-	accumulator = 0;
-
-	for (; p < q; p++) {
-		accumulator += *p;
-	}
-
-	accumulator ^= 0xffffffff;
-
-	fcb->m_u32Checksum = accumulator;
-
-	fcb_size = MAX_HAMMING_FCB_SZ < sizeof(*fcb) ? MAX_HAMMING_FCB_SZ : sizeof(*fcb);
+	fcb->m_u32Checksum = checksum(&fcb->m_u32FingerPrint, fcb_size - offsetof(BCB_ROM_BootBlockStruct_t, m_u32FingerPrint));
 
 	//----------------------------------------------------------------------
 	// Compute the ECC bytes.

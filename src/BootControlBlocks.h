@@ -44,6 +44,14 @@
 #define TYPICAL_NAND_READ_SIZE              2048
 
 #define BCB_MAGIC_OFFSET	12
+#define FCB_OFFSET	2 // I do not know the reason for the two bytes.
+
+#define BCB_READ_VIA_FILE_API	(1 << 0)
+#define BCB_READ_NCB			(1 << 1)
+#define BCB_READ_LDLB			(1 << 2)
+#define BCB_READ_DBBT			(1 << 3)
+#define BCB_READ_DBBT_FROM_FCB	(1 << 4)
+#define BCB_READ_FCB			(1 << 5)
 
 #define MAXSEQLEN 183
 
@@ -340,6 +348,10 @@ typedef struct {
 	union {
 		struct fcb_block FCB_Block;
 		union {
+			struct {
+				uint32_t	m_u32res;
+				uint32_t	m_u32DBBTNumOfPages;
+			};
 			struct {
 				uint32_t	m_u32NumberBB;		//!< # Bad Blocks stored in this table for NAND0.
 				uint32_t	m_u32Number2KPagesBB;	//!< Bad Blocks for NAND0 consume this # of 2K pages.
